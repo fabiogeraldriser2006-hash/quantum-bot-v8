@@ -62,7 +62,6 @@ with st.sidebar:
     st.info(f"Status Terakhir: {execution_bot.bot_state['last_action']}")
     
     # Tombol Refresh Manual: Kunci utama agar layar tidak berkedip otomatis!
-    # Mengklik tombol ini hanya akan memaksa Streamlit memperbarui angka di layar 1 kali.
     st.button("🔄 Refresh Tampilan Layar", use_container_width=True)
     
     st.markdown("---")
@@ -76,7 +75,7 @@ with st.sidebar:
     execution_bot.bot_state["api_key"] = st.text_input("Indodax API Key", type="password")
     execution_bot.bot_state["secret_key"] = st.text_input("Indodax Secret Key", type="password")
     
-    mode_trading = "🔴 LIVE TRADING" if execution_bot.bot_state["api_key"] else "🟢 SIMULATION"
+    mode_trading = "🔴 LIVE TRADING" if execution_bot.bot_state["api_key"] and execution_bot.bot_state["secret_key"] else "🟢 SIMULATION"
     st.markdown(f"**Status Mode:** {mode_trading}")
 
     st.markdown("---")
@@ -172,9 +171,42 @@ with tab_live:
         st.markdown("---")
         st.markdown("### 📋 Portofolio & Saldo")
         
-        uang_kas = execution_bot.bot_state["cash"]
-        st.info(f"💵 **Uang Kas Tersedia (Virtual/Simulasi):** Rp {uang_kas:,.0f}")
+        # PERBAIKAN LOGIKA PORTOFOLIO: Membaca API Key dan menanyakan langsung ke Indodax
+        api_key_aktif = execution_bot.bot_state["api_key"]
+        secret_key_aktif = execution_bot.bot_state["secret_key"]
 
+        if api_key_aktif and secret_key_aktif:
+            st.markdown("#### 🏦 Saldo Asli Indodax Anda")
+            # Memanggil API getInfo menggunakan fungsi yang ada di execution_bot
+            info_wallet = execution_bot.indodax_private_api('getInfo')
+            
+            if info_wallet.get('success') == 1:
+                saldo_asli = info_wallet['return']['balance']
+                idr_asli = float(saldo_asli.get('idr', 0))
+                
+                # Update memori bot dengan uang kas asli
+                execution_bot.bot_state["cash"] = idr_asli 
+                st.info(f"💵 **Uang Kas (IDR):** Rp {idr_asli:,.0f}")
+                
+                # Menampilkan koin asli yang ada di dompet Indodax
+                koin_ditemukan = False
+                for koin_nama, data_koin in config.CRYPTO_MAP.items():
+                    simbol = data_koin['ticker'].split('_')[0] 
+                    jumlah = float(saldo_asli.get(simbol, 0))
+                    if jumlah > 0:
+                        st.success(f"🪙 **{koin_nama}:** {jumlah:.6f}")
+                        koin_ditemukan = True
+                
+                if not koin_ditemukan:
+                    st.caption("Belum ada koin kripto utama di dompet Indodax Anda.")
+            else:
+                st.error(f"Gagal memuat dompet Indodax: {info_wallet.get('error')}")
+        else:
+            st.markdown("#### 🏦 Saldo Simulasi (Virtual)")
+            uang_kas = execution_bot.bot_state["cash"]
+            st.info(f"💵 **Uang Kas Tersedia (Simulasi):** Rp {uang_kas:,.0f}")
+
+        st.markdown("#### 🤖 Posisi Terbuka (Dikelola Bot)")
         if execution_bot.bot_state["positions"]:
             for koin, data in execution_bot.bot_state["positions"].items():
                 hrg_koin_ini = int(data_live[config.CRYPTO_MAP[koin]["ticker"]]['last'])
