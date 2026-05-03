@@ -122,25 +122,59 @@ tab_live, tab_backtest = st.tabs(["🔴 Live Trading Dashboard", "⏪ Mesin Back
 # TAB 1: LIVE DASHBOARD
 # ---------------------------------------------------------
 with tab_live:
-    # Memilih Koin dari Peta Koin di config.py
-    pilihan_koin = st.selectbox("Pilih Aset Kripto untuk Dipantau", list(config.CRYPTO_MAP.keys()))
+    # Memilih Koin Utama untuk Grafik Manual
+    pilihan_koin = st.selectbox("Pilih Aset Kripto untuk Grafik Detail", list(config.CRYPTO_MAP.keys()))
     interval_chart = st.selectbox("Timeframe", ["15m", "1h", "4h", "1D"], index=0)
 
     ticker_koin = config.CRYPTO_MAP[pilihan_koin]["ticker"]
     tv_koin = config.CRYPTO_MAP[pilihan_koin]["tv"]
     
-    # Menarik data dari data_engine.py
+    # Menarik data harga real-time dari data_engine.py
     data_live = data_engine.tarik_data_live_indodax()
     
     if data_live:
         ticker_data = data_live[ticker_koin]
         harga_sekarang = int(ticker_data['last'])
         
-        # Menarik grafik dan status data (Asli/Sintetis)
+        # ---------------------------------------------------------
+        # FITUR BARU: RADAR MULTI-KOIN
+        # Menampilkan secara visual bahwa bot mengawasi semua koin
+        # ---------------------------------------------------------
+        st.markdown("---")
+        st.markdown("### 🌐 Radar Pengawasan Multi-Koin (Live Scanner)")
+        
+        if execution_bot.BOT_IS_RUNNING:
+            nama_semua_koin = ", ".join(config.CRYPTO_MAP.keys())
+            st.info(f"⚡ **Pemindai Latar Belakang Aktif:** Sedang memantau pergerakan {nama_semua_koin} secara terus-menerus.")
+            
+            # Membuat kotak dinamis sesuai jumlah koin yang ada di config.py
+            kolom_radar = st.columns(len(config.CRYPTO_MAP))
+            
+            for i, (koin_nama, data_koin) in enumerate(config.CRYPTO_MAP.items()):
+                with kolom_radar[i % len(kolom_radar)]:
+                    # Cek harga koin di loop ini
+                    harga_realtime_koin = int(data_live[data_koin['ticker']]['last']) if data_live else 0
+                    
+                    # Cek apakah bot sedang punya posisi di koin ini
+                    status_posisi = "✅ Terisi (Hold)" if koin_nama in execution_bot.bot_state["positions"] else "⏳ Standby (Mencari Sinyal)"
+                    warna_teks = "#00FF00" if koin_nama in execution_bot.bot_state["positions"] else "#E0E0E0"
+                    
+                    st.markdown(f"""
+                    <div class='portfolio-box' style='text-align:center;'>
+                        <h4 style='margin:0;'>{koin_nama}</h4>
+                        <p style='margin:5px 0; font-size:1.2em;'>Rp {harga_realtime_koin:,.0f}</p>
+                        <span style='color:{warna_teks}; font-size:0.9em;'>{status_posisi}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.warning("⏸️ Bot Multi-Koin Latar Belakang sedang dinonaktifkan.")
+            
+        st.markdown("---")
+
+        # Menarik grafik untuk koin spesifik (Single View)
         df_chart, status_data = data_engine.tarik_grafik_klines_aman(tv_koin, interval_chart, 120, ticker_data)
         
         if not df_chart.empty:
-            # Menghitung MACD, RSI, dll dari data_engine.py
             df_chart = data_engine.hitung_indikator_teknikal(df_chart)
             c_chart, c_panel = st.columns([7, 3])
             
@@ -149,7 +183,6 @@ with tab_live:
                 if "Synthetic" in status_data:
                     st.warning("⚠️ Indodax memblokir grafik. Menampilkan grafik cadangan (Sintetis).")
                     
-                # Menggambar Grafik Candlestick
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
                 fig.add_trace(go.Candlestick(x=df_chart['Date'], open=df_chart['Open'], high=df_chart['High'], low=df_chart['Low'], close=df_chart['Close'], name='Spot'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df_chart['Date'], y=df_chart['BB_Upper'], line=dict(color='rgba(255,255,255,0.2)', dash='dash'), name='BB Up'), row=1, col=1)
@@ -164,31 +197,27 @@ with tab_live:
                 st.markdown("### 🧠 AI Analysis")
                 sentimen_sekarang = data_engine.tarik_sentimen_global()
                 
-                # Memanggil Otak AI dari quant_brain.py
+                # Memanggil Otak AI
                 narasi_ai, _ = quant_brain.prediksi_ai_market(df_chart, pilihan_koin, harga_sekarang, interval_chart, sentimen_sekarang)
                 st.markdown(f"<div class='ai-box'>{narasi_ai}</div>", unsafe_allow_html=True)
 
         st.markdown("---")
         st.markdown("### 📋 Portofolio & Saldo")
         
-        # PERBAIKAN LOGIKA PORTOFOLIO: Membaca API Key dan menanyakan langsung ke Indodax
         api_key_aktif = execution_bot.bot_state["api_key"]
         secret_key_aktif = execution_bot.bot_state["secret_key"]
 
         if api_key_aktif and secret_key_aktif:
             st.markdown("#### 🏦 Saldo Asli Indodax Anda")
-            # Memanggil API getInfo menggunakan fungsi yang ada di execution_bot
             info_wallet = execution_bot.indodax_private_api('getInfo')
             
             if info_wallet.get('success') == 1:
                 saldo_asli = info_wallet['return']['balance']
                 idr_asli = float(saldo_asli.get('idr', 0))
                 
-                # Update memori bot dengan uang kas asli
                 execution_bot.bot_state["cash"] = idr_asli 
                 st.info(f"💵 **Uang Kas (IDR):** Rp {idr_asli:,.0f}")
                 
-                # Menampilkan koin asli yang ada di dompet Indodax
                 koin_ditemukan = False
                 for koin_nama, data_koin in config.CRYPTO_MAP.items():
                     simbol = data_koin['ticker'].split('_')[0] 
@@ -235,4 +264,4 @@ with tab_live:
 with tab_backtest:
     st.markdown("### ⏪ Mesin Waktu Backtesting")
     st.markdown("Fitur Backtesting akan dibangun pada langkah berikutnya setelah fondasi Live Trading stabil.")
-    st.info("Kini aplikasi Anda 100% termodularisasi dan bebas dari kedipan layar!")
+    st.info("Kini aplikasi Anda 100% termodularisasi dan dilengkapi Radar Multi-Koin!")
