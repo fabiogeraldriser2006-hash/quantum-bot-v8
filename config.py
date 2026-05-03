@@ -16,7 +16,11 @@ FEE_RATE = 0.003
 CRYPTO_MAP = {
     "Bitcoin": {"ticker": "btc_idr", "tv": "BTCIDR"},
     "Ethereum": {"ticker": "eth_idr", "tv": "ETHIDR"},
-    "Solana": {"ticker": "sol_idr", "tv": "SOLIDR"}
+    "Solana": {"ticker": "sol_idr", "tv": "SOLIDR"},
+    "Dogecoin": {"ticker": "doge_idr", "tv": "DOGEIDR"},
+    "Ripple": {"ticker": "xrp_idr", "tv": "XRPIDR"},
+    "Cardano": {"ticker": "ada_idr", "tv": "ADAIDR"},
+    "Pepe": {"ticker": "pepe_idr", "tv": "PEPEIDR"}
 }
 
 # 3. PENGATURAN MODAL AWAL VIRTUAL (SIMULASI)
