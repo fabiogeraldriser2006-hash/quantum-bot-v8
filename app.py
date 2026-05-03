@@ -2,9 +2,8 @@
 =========================================================
 FILE: app.py
 DESKRIPSI: Layar Antarmuka Utama (User Interface) Streamlit.
-Berfungsi sebagai 'Pos Pemantau'. Hanya mengambil data dari 
-execution_bot.py dan tidak lagi menggunakan auto-reload 
-sehingga layar bebas dari kedipan (flickering).
+Berfungsi sebagai 'Pos Pemantau'. Menggunakan float() untuk
+mendukung harga koin mikro (desimal) seperti Pepe atau SHIB.
 =========================================================
 """
 
@@ -49,7 +48,6 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### 🤖 AUTO-PILOT CONTROL")
     
-    # Tombol On/Off untuk menyalakan/mematikan pekerja latar belakang (Thread)
     auto_pilot_toggle = st.toggle("Aktifkan Auto-Pilot (Background)", value=execution_bot.BOT_IS_RUNNING)
     
     if auto_pilot_toggle:
@@ -60,18 +58,14 @@ with st.sidebar:
         st.warning("⏸️ AUTO-PILOT OFF")
         
     st.info(f"Status Terakhir: {execution_bot.bot_state['last_action']}")
-    
-    # Tombol Refresh Manual: Kunci utama agar layar tidak berkedip otomatis!
     st.button("🔄 Refresh Tampilan Layar", use_container_width=True)
     
     st.markdown("---")
-    # Sinkronisasi pengaturan Slider ke Memori Bot di execution_bot.py
     execution_bot.bot_state["scan_speed"] = st.slider("⚡ Kecepatan Pindai Bot (Detik)", 3, 60, 5, 1)
     execution_bot.bot_state["atr_multiplier"] = st.slider("🛡️ Jarak Trailing Stop (ATR)", 1.0, 5.0, 2.0, 0.1)
         
     st.markdown("---")
     st.markdown("### 🔐 LIVE API CREDENTIALS")
-    # Menyimpan kunci API langsung ke dalam memori bot
     execution_bot.bot_state["api_key"] = st.text_input("Indodax API Key", type="password")
     execution_bot.bot_state["secret_key"] = st.text_input("Indodax Secret Key", type="password")
     
@@ -81,14 +75,12 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🏦 Capital & Sizing Engine")
     
-    # Tombol Reset
     if st.button("🔄 Reset Portfolio & History"):
         execution_bot.bot_state["cash"] = config.MODAL_AWAL_DEFAULT
         execution_bot.bot_state["positions"] = {}
         execution_bot.bot_state["trade_history"] = []
         st.rerun()
 
-    # Logika alokasi dana
     target_aum = st.number_input("Target Total AUM (IDR)", value=config.MODAL_AWAL_DEFAULT, step=10000000.0)
     position_size_perc = st.slider("Alokasi Beli per Trade (%)", 10.0, 100.0, 50.0, 5.0)
     execution_bot.bot_state["buy_amount_idr"] = target_aum * (position_size_perc / 100)
@@ -122,24 +114,19 @@ tab_live, tab_backtest = st.tabs(["🔴 Live Trading Dashboard", "⏪ Mesin Back
 # TAB 1: LIVE DASHBOARD
 # ---------------------------------------------------------
 with tab_live:
-    # Memilih Koin Utama untuk Grafik Manual
     pilihan_koin = st.selectbox("Pilih Aset Kripto untuk Grafik Detail", list(config.CRYPTO_MAP.keys()))
     interval_chart = st.selectbox("Timeframe", ["15m", "1h", "4h", "1D"], index=0)
 
     ticker_koin = config.CRYPTO_MAP[pilihan_koin]["ticker"]
     tv_koin = config.CRYPTO_MAP[pilihan_koin]["tv"]
     
-    # Menarik data harga real-time dari data_engine.py
     data_live = data_engine.tarik_data_live_indodax()
     
     if data_live:
         ticker_data = data_live[ticker_koin]
-        harga_sekarang = int(ticker_data['last'])
+        # PERBAIKAN 1: Gunakan float() bukan int() untuk grafik utama
+        harga_sekarang = float(ticker_data['last']) 
         
-        # ---------------------------------------------------------
-        # FITUR BARU: RADAR MULTI-KOIN
-        # Menampilkan secara visual bahwa bot mengawasi semua koin
-        # ---------------------------------------------------------
         st.markdown("---")
         st.markdown("### 🌐 Radar Pengawasan Multi-Koin (Live Scanner)")
         
@@ -147,22 +134,29 @@ with tab_live:
             nama_semua_koin = ", ".join(config.CRYPTO_MAP.keys())
             st.info(f"⚡ **Pemindai Latar Belakang Aktif:** Sedang memantau pergerakan {nama_semua_koin} secara terus-menerus.")
             
-            # Membuat kotak dinamis sesuai jumlah koin yang ada di config.py
             kolom_radar = st.columns(len(config.CRYPTO_MAP))
             
             for i, (koin_nama, data_koin) in enumerate(config.CRYPTO_MAP.items()):
                 with kolom_radar[i % len(kolom_radar)]:
-                    # Cek harga koin di loop ini
-                    harga_realtime_koin = int(data_live[data_koin['ticker']]['last']) if data_live else 0
+                    # PERBAIKAN 2: Gunakan float() dan pastikan koin ada di data API
+                    if data_koin['ticker'] in data_live:
+                        harga_realtime_koin = float(data_live[data_koin['ticker']]['last'])
+                    else:
+                        harga_realtime_koin = 0.0
                     
-                    # Cek apakah bot sedang punya posisi di koin ini
                     status_posisi = "✅ Terisi (Hold)" if koin_nama in execution_bot.bot_state["positions"] else "⏳ Standby (Mencari Sinyal)"
                     warna_teks = "#00FF00" if koin_nama in execution_bot.bot_state["positions"] else "#E0E0E0"
+                    
+                    # Logika tampilan: Tampilkan desimal jika harga koin sangat murah (Koin Mikro)
+                    if harga_realtime_koin < 10:
+                        teks_harga = f"Rp {harga_realtime_koin:,.4f}"
+                    else:
+                        teks_harga = f"Rp {harga_realtime_koin:,.0f}"
                     
                     st.markdown(f"""
                     <div class='portfolio-box' style='text-align:center;'>
                         <h4 style='margin:0;'>{koin_nama}</h4>
-                        <p style='margin:5px 0; font-size:1.2em;'>Rp {harga_realtime_koin:,.0f}</p>
+                        <p style='margin:5px 0; font-size:1.2em;'>{teks_harga}</p>
                         <span style='color:{warna_teks}; font-size:0.9em;'>{status_posisi}</span>
                     </div>
                     """, unsafe_allow_html=True)
@@ -171,7 +165,6 @@ with tab_live:
             
         st.markdown("---")
 
-        # Menarik grafik untuk koin spesifik (Single View)
         df_chart, status_data = data_engine.tarik_grafik_klines_aman(tv_koin, interval_chart, 120, ticker_data)
         
         if not df_chart.empty:
@@ -196,8 +189,6 @@ with tab_live:
             with c_panel:
                 st.markdown("### 🧠 AI Analysis")
                 sentimen_sekarang = data_engine.tarik_sentimen_global()
-                
-                # Memanggil Otak AI
                 narasi_ai, _ = quant_brain.prediksi_ai_market(df_chart, pilihan_koin, harga_sekarang, interval_chart, sentimen_sekarang)
                 st.markdown(f"<div class='ai-box'>{narasi_ai}</div>", unsafe_allow_html=True)
 
@@ -238,7 +229,7 @@ with tab_live:
         st.markdown("#### 🤖 Posisi Terbuka (Dikelola Bot)")
         if execution_bot.bot_state["positions"]:
             for koin, data in execution_bot.bot_state["positions"].items():
-                hrg_koin_ini = int(data_live[config.CRYPTO_MAP[koin]["ticker"]]['last'])
+                hrg_koin_ini = float(data_live[config.CRYPTO_MAP[koin]["ticker"]]['last']) # PERBAIKAN 3
                 nilai_jual_bersih = (data['amount'] * hrg_koin_ini) * (1 - config.FEE_RATE)
                 modal_awal_idr = (data['amount'] * data['avg_price']) / (1 - config.FEE_RATE)
                 
@@ -246,7 +237,7 @@ with tab_live:
                 pnl_persen = (pnl_asli / modal_awal_idr) * 100
                 warna = "#00FF00" if pnl_asli >= 0 else "#FF0000"
                 
-                st.markdown(f"<div class='portfolio-box'><strong>{koin}</strong><br>Koin Diterima: {data['amount']:.5f} | Avg Price: Rp {data['avg_price']:,.0f}<br>Estimasi Jual: Rp {nilai_jual_bersih:,.0f} <span style='color:{warna};'>({pnl_persen:+.2f}%)</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='portfolio-box'><strong>{koin}</strong><br>Koin Diterima: {data['amount']:.5f} | Avg Price: Rp {data['avg_price']:,.4f}<br>Estimasi Jual: Rp {nilai_jual_bersih:,.0f} <span style='color:{warna};'>({pnl_persen:+.2f}%)</span></div>", unsafe_allow_html=True)
         else:
             st.caption("Belum ada posisi terbuka.")
 
