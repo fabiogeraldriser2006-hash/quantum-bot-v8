@@ -19,6 +19,7 @@ import config
 import data_engine
 import quant_brain
 import execution_bot
+import backtest_engine
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN
@@ -253,6 +254,50 @@ with tab_live:
 # TAB 2: BACKTESTING ROOM (Mesin Waktu)
 # ---------------------------------------------------------
 with tab_backtest:
-    st.markdown("### ⏪ Mesin Waktu Backtesting")
-    st.markdown("Fitur Backtesting akan dibangun pada langkah berikutnya setelah fondasi Live Trading stabil.")
-    st.info("Kini aplikasi Anda 100% termodularisasi dan dilengkapi Radar Multi-Koin!")
+    st.markdown("### ⏪ Mesin Waktu Backtesting (Simulator AI)")
+    st.markdown("Uji performa Jaringan Saraf AI dan ketahanan Trailing Stop Anda menggunakan data masa lalu.")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        bt_koin = st.selectbox("Koin untuk diuji", list(config.CRYPTO_MAP.keys()), key="bt_coin")
+    with col2:
+        bt_durasi = st.selectbox("Durasi Data Historis", [7, 14, 30], format_func=lambda x: f"{x} Hari Terakhir")
+    with col3:
+        bt_tf = st.selectbox("Timeframe Analisis", ["15m", "1h", "4h"], index=1, key="bt_tf")
+        
+    bt_modal = st.number_input("Modal Awal Simulasi (IDR)", value=10000000.0, step=1000000.0)
+    
+    if st.button("▶️ JALANKAN SIMULASI BACKTEST", type="primary", use_container_width=True):
+        with st.spinner(f"⏳ Sedang memutar waktu... Mengunduh data {bt_koin} dan melatih AI. Mohon tunggu..."):
+            
+            # Memanggil fungsi dari file backtest_engine.py
+            hasil, jurnal = backtest_engine.jalankan_simulasi_backtest(
+                koin=bt_koin, 
+                timeframe=bt_tf, 
+                durasi_hari=bt_durasi, 
+                modal_awal=bt_modal,
+                atr_multiplier=execution_bot.bot_state["atr_multiplier"]
+            )
+            
+            if hasil is None:
+                st.error(f"❌ Simulasi gagal: {jurnal}")
+            else:
+                if "Synthetic" in hasil["status_data"]:
+                    st.warning("⚠️ Indodax membatasi penarikan data riwayat dalam jumlah besar. Menggunakan Data Sintetis (Tiruan) untuk simulasi.")
+                else:
+                    st.success("✅ Simulasi masa lalu selesai menggunakan Data Asli Indodax!")
+                
+                # Menampilkan Papan Skor Hasil Simulasi
+                st.markdown("### 📊 Papan Skor Backtest")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Modal Awal", f"Rp {hasil['modal_awal']:,.0f}")
+                c2.metric("Saldo Akhir (Estimasi)", f"Rp {hasil['saldo_akhir']:,.0f}", f"{hasil['total_profit']:,.0f} IDR")
+                c3.metric("Total Transaksi Selesai", hasil['total_trade'])
+                c4.metric("Akurasi Menang (Win Rate)", f"{hasil['win_rate']:.1f}%")
+                
+                # Menampilkan Jurnal Transaksi
+                st.markdown("#### 📓 Jurnal Transaksi Virtual")
+                if not jurnal.empty:
+                    st.dataframe(jurnal, use_container_width=True)
+                else:
+                    st.info("Tidak ada transaksi (AI memutuskan untuk HOLD terus selama periode ini).")
