@@ -85,15 +85,21 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🏦 Capital & Sizing Engine")
     
-    if st.button("🔄 Reset Portfolio & History"):
-        execution_bot.bot_state["cash"] = config.MODAL_AWAL_DEFAULT
-        execution_bot.bot_state["positions"] = {}
-        execution_bot.bot_state["trade_history"] = []
-        st.rerun()
+# 1. BACA INPUT PENGGUNA TERLEBIH DAHULU
+target_aum = st.number_input("Target Total AUM (IDR)", value=float(config.MODAL_AWAL_DEFAULT), step=10000000.0)
+position_size_perc = st.slider("Alokasi Beli per Trade (%)", 10.0, 100.0, 50.0, 5.0)
 
-    target_aum = st.number_input("Target Total AUM (IDR)", value=config.MODAL_AWAL_DEFAULT, step=10000000.0)
-    position_size_perc = st.slider("Alokasi Beli per Trade (%)", 10.0, 100.0, 50.0, 5.0)
-    execution_bot.bot_state["buy_amount_idr"] = target_aum * (position_size_perc / 100)
+# 2. HITUNG ANGGARAN BELANJA BOT
+execution_bot.bot_state["buy_amount_idr"] = target_aum * (position_size_perc / 100)
+st.info(f"**Dana Dieksekusi per Koin:** Rp {execution_bot.bot_state['buy_amount_idr']:,.0f}")
+
+# 3. TOMBOL RESET (KINI MENGGUNAKAN ANGKA TARGET AUM)
+if st.button("🔄 Setor / Reset Portfolio Simulasi"):
+    execution_bot.bot_state["cash"] = target_aum 
+    execution_bot.bot_state["positions"] = {}
+    execution_bot.bot_state["trade_history"] = []
+    st.success(f"Dana simulasi berhasil direset menjadi Rp {target_aum:,.0f}!")
+    st.rerun()
     
     st.markdown("---")
     execution_bot.bot_state["scan_speed"] = st.slider("⚡ Kecepatan Pindai Bot (Detik)", 3, 60, 5, 1)
