@@ -3,7 +3,7 @@
 FILE: quant_brain.py
 DESKRIPSI: Jembatan API Gemini (LLM Engine).
 Otomatis membaca API Key dari layar antarmuka (app.py) melalui memori OS.
-Memberikan keputusan BUY/SELL/HOLD secara instan.
+Memberikan keputusan BUY/SELL/HOLD secara instan menggunakan model gemini-pro.
 ================================================================================
 """
 
@@ -58,8 +58,8 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         }}
         """
         
-        # 4. Menghubungi Otak Gemini 
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # 4. Menghubungi Otak Gemini (PERBAIKAN: Menggunakan gemini-pro yang paling stabil)
+        model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(prompt)
         
         # 5. Mengekstrak dan Membaca Jawaban JSON
