@@ -1,9 +1,10 @@
 """
 ================================================================================
 FILE: quant_brain.py
-DESKRIPSI: Jembatan API Gemini (LLM Engine).
-Dilengkapi dengan sistem Fallback Model. Jika mesin utama gagal, 
-sistem akan otomatis mencoba mesin cadangan agar tidak crash.
+DESKRIPSI: Jembatan API Gemini (LLM Engine) dengan Auto-Discovery.
+Otomatis menarik daftar model yang tersedia dari server Google 
+agar tidak pernah mengalami error 404 (Model Not Found) akibat 
+perubahan nama versi API.
 ================================================================================
 """
 
@@ -15,6 +16,7 @@ import os
 def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global):
     narasi = f"**🧠 Gemini Quant Engine: {coin} ({timeframe})**\n\nSpot: **Rp {current_price:,.0f}** | Sentimen: **{sentimen_global}/100**\n\n"
     
+    # Memeriksa Kunci API dari antarmuka
     api_key = os.environ.get("GEMINI_API_KEY", "")
     
     if not api_key:
@@ -26,12 +28,12 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         return narasi + "Data terlalu sedikit. Menunggu lilin grafik terbentuk...", "HOLD"
     
     try:
-        # Menyiapkan Data Tabel
+        # Menyiapkan Data Tabel untuk dianalisis
         df_recent = df_chart.tail(20)[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].copy()
         df_recent['Date'] = df_recent['Date'].astype(str)
         tabel_teks = df_recent.to_string(index=False)
         
-        # Merakit Instruksi
+        # Merakit Instruksi (Prompt)
         prompt = f"""
         Anda adalah Analis Kuantitatif Kripto Profesional.
         Berikut adalah riwayat harga {coin} (timeframe {timeframe}) 20 periode terakhir:
@@ -50,22 +52,30 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         """
         
         # ==========================================
-        # SISTEM FALLBACK (ANTI-CRASH)
+        # FITUR BARU: AUTO-DISCOVERY MODEL (RADAR PINTAR)
         # ==========================================
-        try:
-            # Percobaan 1: Menggunakan mesin tercepat dan terbaru
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-        except Exception as e_flash:
-            try:
-                # Percobaan 2: Jika gagal, gunakan mesin legacy yang paling universal
-                narasi += "*(Pindah ke mesin cadangan...)*\n"
-                model = genai.GenerativeModel('gemini-pro')
-                response = model.generate_content(prompt)
-            except Exception as e_pro:
-                return narasi + f"💥 Gagal menghubungi kedua Server API: {e_pro}", "ERROR"
+        # Menarik daftar nama model resmi langsung dari server Google
+        model_list = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # Ekstraksi JSON
+        if not model_list:
+            return narasi + "💥 Kunci API Anda tidak memiliki akses ke model AI pembuat teks.", "ERROR"
+        
+        # Otomatis memilih model: Prioritaskan 'flash' atau 'pro', jika tidak ada, ambil yang pertama
+        nama_model_terpilih = model_list[0] 
+        for m in model_list:
+            if '1.5-flash' in m:
+                nama_model_terpilih = m
+                break
+            elif '1.5-pro' in m:
+                nama_model_terpilih = m
+                
+        narasi += f"*(Terhubung dengan mesin dinamis: {nama_model_terpilih})*\n"
+        
+        # Memanggil mesin AI yang pasti valid dan ada di daftar
+        model = genai.GenerativeModel(nama_model_terpilih)
+        response = model.generate_content(prompt)
+        
+        # Ekstraksi dan pembersihan JSON
         jawaban_teks = response.text.strip()
         if jawaban_teks.startswith("```json"):
             jawaban_teks = jawaban_teks[7:-3]
@@ -74,7 +84,7 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
             
         hasil_json = json.loads(jawaban_teks)
         keputusan = hasil_json.get("keputusan", "HOLD")
-        analisis = hasil_json.get("analisis", "Gagal mengurai narasi analisis.")
+        analisis = hasil_json.get("analisis", "Gagal mengurai narasi analisis dari teks.")
         
         narasi += f"🤖 **Analisis AI:**\n{analisis}\n\n"
         
@@ -85,6 +95,6 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         return narasi, keputusan
 
     except json.JSONDecodeError:
-        return narasi + "⚠️ Respons API gagal diurai. AI Menahan diri.", "HOLD"
+        return narasi + "⚠️ Respons API gagal diurai menjadi JSON. Pastikan prompt AI tepat.", "HOLD"
     except Exception as e:
-        return narasi + f"💥 Kesalahan Sistem: {e}", "ERROR"
+        return narasi + f"💥 Kesalahan Koneksi API: {e}", "ERROR"
