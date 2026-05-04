@@ -1,9 +1,9 @@
 """
 ================================================================================
 FILE: quant_brain.py
-DESKRIPSI: Jembatan API Gemini (LLM Engine) dengan Cache System.
-Menyimpan analisis terakhir selama 5 menit untuk menghemat kuota API 
-Google secara drastis (mencegah Error 429 Quota Exceeded).
+DESKRIPSI: Jembatan API Gemini dengan Persistent File Cache & Rate Limiter.
+Menyimpan ingatan di file JSON agar tahan terhadap refresh Streamlit.
+Memaksa jeda 15 detik setelah setiap panggilan untuk menjamin kuota aman.
 ================================================================================
 """
 
@@ -14,132 +14,127 @@ import os
 import time
 
 # ==========================================
-# LACI MEMORI GLOBAL (CACHE SYSTEM)
-# Menyimpan jawaban API agar tidak perlu bertanya terus-menerus
+# FUNGSI MANAJEMEN MEMORI PERMANEN (HARD DRIVE CACHE)
 # ==========================================
-AI_CACHE = {}
+CACHE_FILE = "ai_api_cache.json"
 
+def baca_ingatan():
+    """Membaca ingatan AI dari file fisik."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def simpan_ingatan(data):
+    """Menyimpan ingatan AI ke file fisik."""
+    try:
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+# ==========================================
+# FUNGSI OTAK UTAMA
+# ==========================================
 def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global):
-    global AI_CACHE
-    
     narasi_awal = f"**🧠 Gemini Quant Engine: {coin} ({timeframe})**\n\nSpot: **Rp {current_price:,.0f}** | Sentimen: **{sentimen_global}/100**\n\n"
     
     # ---------------------------------------------------------
-    # 1. CEK MEMORI JANGKA PENDEK (CACHE)
+    # 1. BACA FILE MEMORI (ANTI-STREAMLIT REFRESH)
     # ---------------------------------------------------------
-    cache_key = f"{coin}_{timeframe}"
+    ingatan_ai = baca_ingatan()
+    kunci_koin = f"{coin}_{timeframe}"
     waktu_sekarang = time.time()
     
-    # Jika ada catatan di memori, dan usianya belum 5 menit (300 detik)
-    if cache_key in AI_CACHE:
-        waktu_terakhir = AI_CACHE[cache_key]["waktu"]
-        if (waktu_sekarang - waktu_terakhir) < 300:
-            narasi_cache = AI_CACHE[cache_key]["narasi"]
-            keputusan_cache = AI_CACHE[cache_key]["keputusan"]
-            pesan_hemat = "*(Menggunakan analisis memori untuk menghemat kuota API...)*\n\n"
+    # Durasi ingatan disetel 15 menit (900 detik) untuk sangat menghemat kuota
+    if kunci_koin in ingatan_ai:
+        waktu_terakhir = ingatan_ai[kunci_koin]["waktu"]
+        if (waktu_sekarang - waktu_terakhir) < 900:
+            narasi_cache = ingatan_ai[kunci_koin]["narasi"]
+            keputusan_cache = ingatan_ai[kunci_koin]["keputusan"]
+            pesan_hemat = "*(Mengambil dari Arsip Memori. Menghemat Kuota API...)*\n\n"
             return narasi_awal + pesan_hemat + narasi_cache, keputusan_cache
 
     # ---------------------------------------------------------
-    # 2. JIKA MEMORI KOSONG/USANG, HUBUNGI SERVER GOOGLE
+    # 2. HUBUNGI GOOGLE JIKA INGATAN KOSONG / USANG
     # ---------------------------------------------------------
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        return narasi_awal + "⚠️ **MENUNGGU AKSES:** Kunci API Gemini belum dimasukkan di menu samping.", "HOLD"
+        return narasi_awal + "⚠️ **MENUNGGU AKSES:** Kunci API Gemini belum dimasukkan.", "HOLD"
         
     genai.configure(api_key=api_key)
     
     if len(df_chart) < 20: 
-        return narasi_awal + "Data terlalu sedikit. Menunggu lilin grafik terbentuk...", "HOLD"
+        return narasi_awal + "Data belum cukup untuk dianalisis.", "HOLD"
     
     try:
+        # Menyiapkan data
         df_recent = df_chart.tail(20)[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].copy()
         df_recent['Date'] = df_recent['Date'].astype(str)
         tabel_teks = df_recent.to_string(index=False)
         
         prompt = f"""
         Anda adalah Analis Kuantitatif Kripto Profesional.
-        Berikut adalah riwayat harga {coin} (timeframe {timeframe}) 20 periode terakhir:
+        Riwayat {coin} ({timeframe}) 20 periode terakhir:
         
         {tabel_teks}
         
-        Harga saat ini: Rp {current_price}
-        Indeks Global: {sentimen_global}
+        Harga: Rp {current_price} | Sentimen: {sentimen_global}
         
-        Tugas: Analisis tren harga dan volume di atas. Tentukan apakah harus BUY, SELL, atau HOLD.
-        Anda HARUS membalas HANYA dengan format JSON yang valid persis seperti di bawah ini:
+        Tentukan apakah harus BUY, SELL, atau HOLD berdasarkan tren harga dan volume.
+        BALAS HANYA DENGAN FORMAT JSON:
         {{
             "keputusan": "BUY" | "SELL" | "HOLD",
-            "analisis": "Berikan penjelasan tajam maksimal 3 kalimat."
+            "analisis": "Penjelasan tajam maksimal 3 kalimat."
         }}
         """
         
         model_list = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
         if not model_list:
-            return narasi_awal + "💥 Kunci API Anda tidak memiliki akses ke model AI pembuat teks.", "ERROR"
+            return narasi_awal + "💥 API Key tidak memiliki akses ke model teks.", "ERROR"
+            
+        nama_model = next((m for m in model_list if 'flash' in m), model_list[0])
+        model = genai.GenerativeModel(nama_model)
         
-        nama_model_terpilih = model_list[0] 
-        for m in model_list:
-            if 'flash' in m:
-                nama_model_terpilih = m
-                break
-            elif 'pro' in m:
-                nama_model_terpilih = m
-                
-        narasi_proses = f"*(Terhubung dengan mesin dinamis: {nama_model_terpilih})*\n"
-        model = genai.GenerativeModel(nama_model_terpilih)
+        # Eksekusi API
+        response = model.generate_content(prompt)
         
         # ---------------------------------------------------------
-        # 3. ANTI-RATE LIMIT (RETRY LOGIC)
+        # 3. LAMPU LALU LINTAS (STRICT RATE LIMITER)
         # ---------------------------------------------------------
-        max_percobaan = 3
-        response = None
+        # SETELAH SUKSES BERTANYA, WAJIB TIDUR 15 DETIK SEBELUM LANJUT KE KOIN BERIKUTNYA.
+        # Ini menjamin aplikasi tidak akan pernah memanggil lebih dari 4 kali per menit.
+        time.sleep(15)
         
-        for percobaan in range(max_percobaan):
-            try:
-                response = model.generate_content(prompt)
-                break 
-            except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg or "Quota" in error_msg:
-                    if percobaan < max_percobaan - 1:
-                        time.sleep(20) 
-                    else:
-                        return narasi_awal + narasi_proses + "⏳ **Sistem Mendinginkan Diri:** Kuota API gratis menipis. Harap perlambat Kecepatan Pindai Bot.", "HOLD"
-                else:
-                    raise e
+        # Ekstraksi Jawaban
+        jawaban_teks = response.text.strip().removeprefix("```json").removesuffix("```").strip()
+        hasil_json = json.loads(jawaban_teks)
         
-        if response:
-            jawaban_teks = response.text.strip()
-            if jawaban_teks.startswith("```json"):
-                jawaban_teks = jawaban_teks[7:-3]
-            elif jawaban_teks.startswith("```"):
-                jawaban_teks = jawaban_teks[3:-3]
-                
-            hasil_json = json.loads(jawaban_teks)
-            keputusan = hasil_json.get("keputusan", "HOLD")
-            analisis = hasil_json.get("analisis", "Gagal mengurai narasi analisis dari teks.")
+        keputusan = hasil_json.get("keputusan", "HOLD")
+        analisis = hasil_json.get("analisis", "Gagal mengurai narasi.")
+        
+        narasi_ai_saja = f"🤖 **Analisis AI:**\n{analisis}\n\n"
+        if keputusan == "BUY": narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI (BUY)"
+        elif keputusan == "SELL": narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN (SELL)"
+        else: narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
             
-            # Merakit narasi khusus dari AI
-            narasi_ai_saja = f"🤖 **Analisis AI:**\n{analisis}\n\n"
-            if keputusan == "BUY": narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI PEMBELIAN (BUY)"
-            elif keputusan == "SELL": narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN ASET (SELL)"
-            else: narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN POSISI (HOLD)"
-                
-            # ---------------------------------------------------------
-            # 4. SIMPAN KE LACI MEMORI
-            # ---------------------------------------------------------
-            AI_CACHE[cache_key] = {
-                "waktu": waktu_sekarang,
-                "narasi": narasi_ai_saja,
-                "keputusan": keputusan
-            }
-            
-            return narasi_awal + narasi_proses + narasi_ai_saja, keputusan
-        else:
-            return narasi_awal + "⚠️ Respons API kosong.", "HOLD"
+        # ---------------------------------------------------------
+        # 4. TULIS KE FILE MEMORI PERMANEN
+        # ---------------------------------------------------------
+        ingatan_ai[kunci_koin] = {
+            "waktu": time.time(),
+            "narasi": narasi_ai_saja,
+            "keputusan": keputusan
+        }
+        simpan_ingatan(ingatan_ai)
+        
+        return narasi_awal + f"*(Live Data {nama_model})*\n" + narasi_ai_saja, keputusan
 
-    except json.JSONDecodeError:
-        return narasi_awal + "⚠️ Respons API gagal diurai menjadi JSON. AI menahan diri.", "HOLD"
     except Exception as e:
-        return narasi_awal + f"💥 Kesalahan Koneksi API: {e}", "ERROR"
+        error_msg = str(e)
+        if "429" in error_msg or "Quota" in error_msg:
+            return narasi_awal + "⏳ **Google Rate Limit:** Terlalu banyak koin dipindai. Sistem akan otomatis menggunakan memori pada percobaan berikutnya.", "HOLD"
+        return narasi_awal + f"💥 Error API: {e}", "ERROR"
