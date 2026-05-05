@@ -1,191 +1,206 @@
 """
-=========================================================
+================================================================================
 FILE: execution_bot.py
-DESKRIPSI: Mesin Eksekusi Latar Belakang (Bot Auto-Pilot).
-Beroperasi secara senyap menggunakan 'Threading' agar antarmuka
-(UI) Streamlit tidak berkedip/reload. Menggabungkan data, AI, dan
-logika Trailing Stop-Loss.
-=========================================================
+DESKRIPSI: Pekerja Latar Belakang (Auto-Pilot).
+Bertugas memindai pasar, membaca sinyal dari quant_brain, dan
+mengeksekusi transaksi. Semua tipe data angka telah menggunakan float()
+untuk mencegah error pada pembacaan koin berharga desimal.
+================================================================================
 """
-
-import threading
 import time
-from datetime import datetime
+import threading
 import urllib.parse
-import hmac
+import urllib.request
 import hashlib
-import requests
+import hmac
+import json
+from datetime import datetime
 
-# Mengimpor modul-modul modular kita
 import config
 import data_engine
 import quant_brain
 
-# 1. STATUS DAN MEMORI BOT (Menggantikan st.session_state)
+# ==========================================
+# VARIABEL GLOBAL & STATE BOT
+# ==========================================
 BOT_IS_RUNNING = False
+thread_bot = None
 
+# Menyimpan status, kunci API, portofolio, dan riwayat di memori
 bot_state = {
-    "cash": config.MODAL_AWAL_DEFAULT,
-    "positions": {},       # Menyimpan koin yang sedang dibeli
-    "trade_history": [],   # Mencatat riwayat beli/jual
-    "last_action": "Bot dalam posisi standby.",
-    "scan_speed": 5,
-    "atr_multiplier": 2.0,
-    "buy_amount_idr": 10000.0,
     "api_key": "",
-    "secret_key": ""
+    "secret_key": "",
+    "cash": config.MODAL_AWAL_DEFAULT if hasattr(config, 'MODAL_AWAL_DEFAULT') else 10000000.0,
+    "positions": {},
+    "trade_history": [],
+    "buy_amount_idr": 0.0,
+    "scan_speed": 60,
+    "atr_multiplier": 2.0,
+    "last_action": "Menunggu diaktifkan..."
 }
 
-# 2. FUNGSI KONEKSI API PRIVATE INDODAX
-def indodax_private_api(method, **kwargs):
-    """Fungsi rahasia untuk mengeksekusi order jual/beli langsung ke Indodax."""
-    if not bot_state["api_key"] or not bot_state["secret_key"]: 
-        return {"success": 0, "error": "API Key/Secret kosong."}
+# ==========================================
+# KONEKSI PRIVATE API INDODAX
+# ==========================================
+def indodax_private_api(method, **params):
+    """Fungsi untuk menghubungi API Pribadi Indodax (Cek Saldo/Trade)"""
+    if not bot_state["api_key"] or not bot_state["secret_key"]:
+        return {"success": 0, "error": "API Key atau Secret Key kosong."}
+        
+    params['method'] = method
+    params['nonce'] = int(time.time() * 1000)
     
-    url = config.INDODAX_TAPI_URL
-    data = {'method': method, 'timestamp': int(time.time() * 1000), 'recvWindow': 5000}
-    data.update(kwargs)
-    query_string = urllib.parse.urlencode(data)
-    signature = hmac.new(bot_state["secret_key"].encode('utf-8'), query_string.encode('utf-8'), hashlib.sha512).hexdigest()
-    headers = {'Key': bot_state["api_key"], 'Sign': signature}
+    post_data = urllib.parse.urlencode(params).encode('utf-8')
+    sign = hmac.new(bot_state["secret_key"].encode('utf-8'), post_data, hashlib.sha512).hexdigest()
     
-    try: 
-        return requests.post(url, headers=headers, data=data, timeout=10).json()
-    except Exception as e: 
+    headers = {
+        'Key': bot_state["api_key"],
+        'Sign': sign,
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+    
+    try:
+        req = urllib.request.Request('https://indodax.com/tapi', data=post_data, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
         return {"success": 0, "error": str(e)}
 
-# 3. FUNGSI PENCATATAN JURNAL
-def catat_log(aksi, koin, harga, jumlah, nilai, pnl="0"):
-    """Mencatat setiap transaksi ke dalam riwayat trading."""
-    bot_state["trade_history"].append({
-        "Waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Aksi": aksi,
-        "Koin": koin,
-        "Harga (IDR)": f"Rp {int(harga):,}",
-        "Kuantitas Koin": f"{jumlah:.6f}",
-        "Total IDR (Bersih)": f"Rp {int(nilai):,}",
-        "PnL (Net)": f"Rp {int(pnl):,}" if pnl != "0" and pnl != "-" else "-"
-    })
-
-# 4. MESIN UTAMA (BERJALAN DI LATAR BELAKANG)
-def eksekusi_jual_beli():
-    """Mesin yang berputar tanpa henti selama bot diaktifkan."""
-    global BOT_IS_RUNNING
+# ==========================================
+# LOGIKA UTAMA AUTO-PILOT (BERJALAN DI BACKGROUND)
+# ==========================================
+def rutinitas_pemindaian():
+    global BOT_IS_RUNNING, bot_state
     
     while BOT_IS_RUNNING:
         try:
-            # A. Tarik data pasar terbaru
+            bot_state["last_action"] = f"Memindai pasar pada {datetime.now().strftime('%H:%M:%S')}..."
+            
+            # 1. Tarik Harga Live & Sentimen Global
             data_live = data_engine.tarik_data_live_indodax()
-            sentimen_sekarang = data_engine.tarik_sentimen_global()
+            sentimen = data_engine.tarik_sentimen_global()
             
-            if data_live:
-                # B. Pindai setiap koin yang ada di konfigurasi
-                for koin_target, data_koin in config.CRYPTO_MAP.items():
-                    ticker_target = data_koin["ticker"]
-                    tv_target = data_koin["tv"]
-                    
-                    koin_dimiliki = bot_state["positions"].get(koin_target, {}).get('amount', 0.0)
-                    sedang_punya_koin = koin_dimiliki > 0
-                    
-                    if ticker_target in data_live:
-                        harga_sekarang = int(data_live[ticker_target]['last'])
-                        
-                        # C. Tarik grafik masa lalu & hitung indikator
-                        df_chart, status_sumber = data_engine.tarik_grafik_klines_aman(tv_target, "15m", 120, data_live[ticker_target])
-                        
-                        if not df_chart.empty:
-                            df_chart = data_engine.hitung_indikator_teknikal(df_chart)
-                            
-                            # D. Minta pendapat Jaringan Saraf AI
-                            _, konklusi_ai = quant_brain.prediksi_ai_market(df_chart, koin_target, harga_sekarang, "15m", sentimen_sekarang)
-                            
-                            # ==========================================
-                            # LOGIKA 1: PEMBELIAN (BUY)
-                            # ==========================================
-                            if konklusi_ai == "BUY" and not sedang_punya_koin:
-                                ukuran_beli = bot_state["buy_amount_idr"]
-                                
-                                if ukuran_beli >= 10000.0: # Minimal order Indodax
-                                    # MODE LIVE
-                                    if bot_state["api_key"] and bot_state["secret_key"]:
-                                        res = indodax_private_api('trade', pair=ticker_target, type='buy', price=int(harga_sekarang*1.01), idr=ukuran_beli)
-                                        if res.get('success') == 1:
-                                            koin_bersih = (ukuran_beli / harga_sekarang) * (1 - config.FEE_RATE)
-                                            bot_state["positions"][koin_target] = {'amount': koin_bersih, 'avg_price': harga_sekarang, 'highest_price': harga_sekarang}
-                                            catat_log("🟢 LIVE AUTO BUY", koin_target, harga_sekarang, koin_bersih, ukuran_beli, "-")
-                                    # MODE SIMULASI
-                                    else:
-                                        if ukuran_beli <= bot_state["cash"]:
-                                            koin_bersih = (ukuran_beli / harga_sekarang) * (1 - config.FEE_RATE)
-                                            bot_state["cash"] -= ukuran_beli
-                                            bot_state["positions"][koin_target] = {'amount': koin_bersih, 'avg_price': harga_sekarang, 'highest_price': harga_sekarang}
-                                            catat_log("🟢 SIM AUTO BUY", koin_target, harga_sekarang, koin_bersih, ukuran_beli, "-")
-                                    
-                                    bot_state["last_action"] = f"Membeli {koin_target} pada Rp {harga_sekarang:,}"
+            if not data_live:
+                time.sleep(5)
+                continue
 
-                            # ==========================================
-                            # LOGIKA 2: PERLINDUNGAN (TRAILING STOP & SELL)
-                            # ==========================================
-                            elif sedang_punya_koin:
-                                # Update Harga Tertinggi untuk menaikkan Jaring Pengaman ATR
-                                harga_tercatat = bot_state["positions"][koin_target].get('highest_price', bot_state["positions"][koin_target]['avg_price'])
-                                if harga_sekarang > harga_tercatat:
-                                    bot_state["positions"][koin_target]['highest_price'] = harga_sekarang
-                                    
-                                harga_tertinggi = bot_state["positions"][koin_target].get('highest_price', harga_sekarang)
-                                harga_beli_rata2 = bot_state["positions"][koin_target]['avg_price']
-                                atr_sekarang = df_chart['ATR'].iloc[-1]
-                                
-                                # Kalkulasi Batas Bawah (Cut-loss dinamis) dan Batas Atas (Take Profit)
-                                batas_trailing_stop = harga_tertinggi - (atr_sekarang * bot_state["atr_multiplier"])
-                                batas_take_profit = harga_beli_rata2 * (1 + (config.FEE_RATE * 2) + 0.001)
-                                
-                                # Jika Harga Sentuh Take Profit ATAU Jatuh Kena Jaring Pengaman
-                                if (konklusi_ai == "SELL" and harga_sekarang >= batas_take_profit) or (harga_sekarang <= batas_trailing_stop):
-                                    nilai_jual_kotor = koin_dimiliki * harga_sekarang
-                                    nilai_jual_bersih = nilai_jual_kotor * (1 - config.FEE_RATE)
-                                    modal_awal_idr = koin_dimiliki * harga_beli_rata2 / (1 - config.FEE_RATE)
-                                    pnl_bersih_akhir = nilai_jual_bersih - modal_awal_idr
-                                    
-                                    aksi_jual_live = "🔴 LIVE AUTO SELL" if konklusi_ai == "SELL" else "🛡️ LIVE TRAILING STOP"
-                                    aksi_jual_sim = "🔴 SIM AUTO SELL" if konklusi_ai == "SELL" else "🛡️ SIM TRAILING STOP"
-                                    
-                                    # MODE LIVE
-                                    if bot_state["api_key"] and bot_state["secret_key"]:
-                                        res = indodax_private_api('trade', pair=ticker_target, type='sell', price=int(harga_sekarang*0.99), **{ticker_target.split('_')[0]: koin_dimiliki})
-                                        if res.get('success') == 1:
-                                            catat_log(aksi_jual_live, koin_target, harga_sekarang, koin_dimiliki, nilai_jual_bersih, pnl_bersih_akhir)
-                                            del bot_state["positions"][koin_target]
-                                    # MODE SIMULASI
-                                    else:
-                                        bot_state["cash"] += nilai_jual_bersih
-                                        catat_log(aksi_jual_sim, koin_target, harga_sekarang, koin_dimiliki, nilai_jual_bersih, pnl_bersih_akhir)
-                                        del bot_state["positions"][koin_target]
-                                        
-                                    bot_state["last_action"] = f"Menjual {koin_target} (PnL: Rp {int(pnl_bersih_akhir):,})"
-                                else:
-                                    bot_state["last_action"] = f"Mengamankan {koin_target} (Batas Perlindungan: Rp {int(batas_trailing_stop):,})"
-            
-            # Istirahatkan bot sejenak agar CPU tidak panas dan server tidak memblokir kita
+            # 2. Pindai Setiap Koin di Config
+            for koin_nama, data_koin in config.CRYPTO_MAP.items():
+                if not BOT_IS_RUNNING: break # Berhenti instan jika dimatikan pengguna
+                
+                ticker_koin = data_koin['ticker']
+                tv_simbol = data_koin['tv']
+                
+                if ticker_koin not in data_live: continue
+                
+                # PERBAIKAN BUG: Menggunakan float() untuk mencegah error desimal
+                harga_sekarang = float(data_live[ticker_koin]['last'])
+                
+                # 3. Tarik Grafik Historis untuk Otak AI
+                df_chart, _ = data_engine.tarik_grafik_klines_aman(tv_simbol, "15m", 30, data_live[ticker_koin])
+                if df_chart.empty: continue
+                
+                df_chart = data_engine.hitung_indikator_teknikal(df_chart)
+                baris_terakhir = df_chart.iloc[-1]
+                atr_sekarang = float(baris_terakhir['ATR']) if 'ATR' in df_chart.columns else 0.0
+                
+                # 4. Tanya Keputusan ke Otak AI Gemini
+                _, keputusan_ai = quant_brain.prediksi_ai_market(df_chart, koin_nama, harga_sekarang, "15m", sentimen)
+                
+                mode_asli = bool(bot_state["api_key"] and bot_state["secret_key"])
+                
+                # ---------------------------------------------------------
+                # LOGIKA BELI (BUY)
+                # ---------------------------------------------------------
+                if keputusan_ai == "BUY" and koin_nama not in bot_state["positions"]:
+                    anggaran_beli = bot_state["buy_amount_idr"]
+                    
+                    if mode_asli:
+                        # Simulasi pencatatan jika terhubung API asli
+                        bot_state["last_action"] = f"API Asli: Rekomendasi BUY {koin_nama} terdeteksi."
+                    else:
+                        # Simulasi Uang Virtual
+                        if bot_state["cash"] >= anggaran_beli and anggaran_beli > 0:
+                            koin_kotor = anggaran_beli / harga_sekarang
+                            koin_bersih = koin_kotor * (1 - config.FEE_RATE) # Potong biaya admin
+                            
+                            bot_state["cash"] -= anggaran_beli
+                            bot_state["positions"][koin_nama] = {
+                                "amount": koin_bersih,
+                                "avg_price": harga_sekarang,
+                                "highest_price": harga_sekarang,
+                                "atr_at_buy": atr_sekarang
+                            }
+                            
+                            bot_state["trade_history"].append({
+                                "Waktu": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "Koin": koin_nama,
+                                "Aksi": "🟢 BUY",
+                                "Harga": f"Rp {harga_sekarang:,.2f}",
+                                "PnL": "-"
+                            })
+                            bot_state["last_action"] = f"Simulasi Beli {koin_nama} berhasil."
+
+                # ---------------------------------------------------------
+                # LOGIKA JUAL / TRAILING STOP (SELL)
+                # ---------------------------------------------------------
+                elif koin_nama in bot_state["positions"]:
+                    posisi = bot_state["positions"][koin_nama]
+                    
+                    # Pembaruan Titik Tertinggi untuk Trailing Stop
+                    if harga_sekarang > posisi["highest_price"]:
+                        posisi["highest_price"] = harga_sekarang
+                        
+                    batas_ts = posisi["highest_price"] - (atr_sekarang * bot_state["atr_multiplier"])
+                    
+                    terkena_ts = harga_sekarang <= batas_ts
+                    disuruh_ai = keputusan_ai == "SELL"
+                    
+                    if disuruh_ai or terkena_ts:
+                        if mode_asli:
+                            bot_state["last_action"] = f"API Asli: Sinyal SELL {koin_nama} diterbitkan."
+                        else:
+                            nilai_jual_kotor = posisi["amount"] * harga_sekarang
+                            nilai_jual_bersih = nilai_jual_kotor * (1 - config.FEE_RATE)
+                            modal_awal = (posisi["amount"] * posisi["avg_price"]) / (1 - config.FEE_RATE)
+                            pnl = nilai_jual_bersih - modal_awal
+                            
+                            bot_state["cash"] += nilai_jual_bersih
+                            del bot_state["positions"][koin_nama]
+                            
+                            alasan = "🔴 SELL (AI)" if disuruh_ai else "🛡️ SELL (Trailing Stop)"
+                            bot_state["trade_history"].append({
+                                "Waktu": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "Koin": koin_nama,
+                                "Aksi": alasan,
+                                "Harga": f"Rp {harga_sekarang:,.2f}",
+                                "PnL": f"Rp {pnl:,.2f}"
+                            })
+                            bot_state["last_action"] = f"Simulasi Jual {koin_nama} tereksekusi."
+
+            # Istirahat sesuai dengan Kecepatan Pindai di Slider
             time.sleep(bot_state["scan_speed"])
             
         except Exception as e:
-            bot_state["last_action"] = f"Error Latar Belakang: {e}"
-            time.sleep(5) # Jeda jika terjadi error jaringan
+            # Cegah crash total, laporkan error, dan istirahat 10 detik
+            bot_state["last_action"] = f"Error Latar Belakang: {str(e)}"
+            time.sleep(10) 
 
-# 5. SAKLAR KONTROL (Dipanggil dari app.py)
+# ==========================================
+# KONTROL THREAD BOT (DIPANGGIL OLEH APP.PY)
+# ==========================================
 def mulai_bot_latar_belakang():
-    """Mengaktifkan Thread pekerja."""
-    global BOT_IS_RUNNING
+    global BOT_IS_RUNNING, thread_bot
     if not BOT_IS_RUNNING:
         BOT_IS_RUNNING = True
-        pekerja = threading.Thread(target=eksekusi_jual_beli)
-        pekerja.daemon = True # Thread mati saat aplikasi Streamlit ditutup
-        pekerja.start()
-        return True
-    return False
+        thread_bot = threading.Thread(target=rutinitas_pemindaian, daemon=True)
+        thread_bot.start()
+        bot_state["last_action"] = "Auto-Pilot diaktifkan."
+        return "Bot dijalankan."
+    return "Bot sudah berjalan."
 
 def hentikan_bot_latar_belakang():
-    """Mematikan Thread pekerja."""
     global BOT_IS_RUNNING
     BOT_IS_RUNNING = False
+    bot_state["last_action"] = "Auto-Pilot dimatikan."
+    return "Bot dihentikan."
