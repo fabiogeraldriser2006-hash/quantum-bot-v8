@@ -2,11 +2,10 @@
 ================================================================================
 FILE: quant_brain.py
 DESKRIPSI: Jembatan API Gemini dengan Persistent Cache & Auto-Discovery.
-Dilengkapi REM OTOMATIS (Jeda 15 detik) untuk mengakali batas kuota 5 RPM
-pada model terbaru Google, sekaligus anti-crash dari Error 404.
+Kode ini telah disterilkan dari Syntax Error. Menggunakan logika dasar Python
+untuk memastikan kompatibilitas penuh dengan server Streamlit.
 ================================================================================
 """
-
 import pandas as pd
 import google.generativeai as genai
 import json
@@ -80,7 +79,6 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         
         # ---------------------------------------------------------
         # FITUR RADAR PINTAR (AUTO-DISCOVERY)
-        # Menghindari Error 404 selamanya dengan mencari nama model yang aktif
         # ---------------------------------------------------------
         model_list = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         if not model_list:
@@ -102,20 +100,31 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         
         # ---------------------------------------------------------
         # REM OTOMATIS: WAJIB TIDUR 15 DETIK
-        # Menjamin kita hanya meminta maksimal 4 kali per menit (aman dari limit 5 RPM)
         # ---------------------------------------------------------
         time.sleep(15) 
         
-        # Ekstraksi Jawaban
-        jawaban_teks = response.text.strip().removeprefix("```json").removesuffix("
-```").strip()
+        # Ekstraksi Jawaban (Pembersihan Teks)
+        jawaban_teks = response.text.strip()
+        if jawaban_teks.startswith("```json"):
+            jawaban_teks = jawaban_teks[7:]
+        if jawaban_teks.startswith("
+```"):
+            jawaban_teks = jawaban_teks[3:]
+        if jawaban_teks.endswith("```"):
+            jawaban_teks = jawaban_teks[:-3]
+            
+        jawaban_teks = jawaban_teks.strip()
+        
         hasil_json = json.loads(jawaban_teks)
         keputusan = hasil_json.get("keputusan", "HOLD")
         
         narasi_ai_saja = f"🤖 **Analisis AI:**\n{hasil_json.get('analisis', 'Gagal urai narasi.')}\n\n"
-        if keputusan == "BUY": narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI (BUY)"
-        elif keputusan == "SELL": narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN (SELL)"
-        else: narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
+        if keputusan == "BUY": 
+            narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI (BUY)"
+        elif keputusan == "SELL": 
+            narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN (SELL)"
+        else: 
+            narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
             
         # Simpan ke File Memori Permanen
         ingatan_ai[kunci_koin] = {"waktu": time.time(), "narasi": narasi_ai_saja, "keputusan": keputusan}
@@ -126,5 +135,5 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "Quota" in error_msg:
-            return narasi_awal + "⏳ **Google Rate Limit:** Bot rehat sejenak karena kuota penuh. Pastikan Auto-Pilot dimatikan sementara.", "HOLD"
+            return narasi_awal + "⏳ **Google Rate Limit:** Bot rehat sejenak karena kuota penuh.", "HOLD"
         return narasi_awal + f"💥 Error API: {e}", "ERROR"
