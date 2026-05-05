@@ -7,7 +7,6 @@ import time
 CACHE_FILE = "ai_api_cache.json"
 
 def baca_ingatan():
-    """Membaca ingatan AI dari file."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
@@ -17,7 +16,6 @@ def baca_ingatan():
     return {}
 
 def simpan_ingatan(data):
-    """Menyimpan ingatan AI ke file."""
     try:
         with open(CACHE_FILE, 'w') as f:
             json.dump(data, f)
@@ -25,7 +23,6 @@ def simpan_ingatan(data):
         pass
 
 def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global):
-    """Fungsi utama untuk menghubungi Gemini AI."""
     narasi_awal = f"**🧠 Gemini Quant Engine: {coin} ({timeframe})**\n\nSpot: **Rp {current_price:,.0f}** | Sentimen: **{sentimen_global}/100**\n\n"
     
     ingatan_ai = baca_ingatan()
@@ -54,9 +51,7 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         prompt = f"""
         Analisis data harga kripto ini (20 periode terakhir):
         {tabel_teks}
-        
         Harga: Rp {current_price} | Sentimen: {sentimen_global}
-        
         Tentukan BUY, SELL, atau HOLD.
         BALAS HANYA DENGAN FORMAT JSON:
         {{
@@ -69,16 +64,12 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         response = model.generate_content(prompt)
         time.sleep(15) 
         
+        # --- PERBAIKAN: METODE PEMBERSIHAN YANG LEBIH AMAN ---
         jawaban_teks = response.text.strip()
-        if jawaban_teks.startswith("```json"):
-            jawaban_teks = jawaban_teks[7:]
-        if jawaban_teks.startswith("
-```"):
-            jawaban_teks = jawaban_teks[3:]
-        if jawaban_teks.endswith("```"):
-            jawaban_teks = jawaban_teks[:-3]
+        jawaban_teks = jawaban_teks.replace('```json', '').replace('```', '').strip()
+        # ---------------------------------------------------
             
-        hasil_json = json.loads(jawaban_teks.strip())
+        hasil_json = json.loads(jawaban_teks)
         keputusan = hasil_json.get("keputusan", "HOLD")
         analisis_teks = hasil_json.get("analisis", "Gagal mengurai narasi AI.")
         
