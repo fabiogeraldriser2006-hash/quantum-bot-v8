@@ -1,9 +1,9 @@
 """
 ================================================================================
 FILE: quant_brain.py
-DESKRIPSI: Jembatan API Gemini dengan Persistent Cache & Rate Limiter.
-Telah dimodifikasi untuk MEMAKSA penggunaan model 'gemini-1.5-flash' 
-guna mendapatkan kuota gratis 15 RPM (bukan 5 RPM).
+DESKRIPSI: Jembatan API Gemini dengan Persistent Cache & Auto-Discovery.
+Dilengkapi REM OTOMATIS (Jeda 15 detik) untuk mengakali batas kuota 5 RPM
+pada model terbaru Google, sekaligus anti-crash dari Error 404.
 ================================================================================
 """
 
@@ -14,7 +14,7 @@ import os
 import time
 
 # ==========================================
-# LACI MEMORI PERMANEN
+# LACI MEMORI PERMANEN (HARD DRIVE CACHE)
 # ==========================================
 CACHE_FILE = "ai_api_cache.json"
 
@@ -45,12 +45,13 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
     kunci_koin = f"{coin}_{timeframe}"
     waktu_sekarang = time.time()
     
+    # Hemat kuota dengan menggunakan memori selama 15 menit (900 detik)
     if kunci_koin in ingatan_ai:
         waktu_terakhir = ingatan_ai[kunci_koin]["waktu"]
-        if (waktu_sekarang - waktu_terakhir) < 900: # Ingat selama 15 menit
-            return narasi_awal + "*(Membaca dari Arsip Memori...)*\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
+        if (waktu_sekarang - waktu_terakhir) < 900: 
+            return narasi_awal + "*(Menggunakan data memori untuk hemat kuota...)*\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
 
-    # 2. HUBUNGI GOOGLE JIKA MEMORI KOSONG
+    # 2. PERSIAPAN KONEKSI GOOGLE
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         return narasi_awal + "⚠️ Kunci API Gemini belum dimasukkan.", "HOLD"
@@ -77,16 +78,37 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         }}
         """
         
-        # PERBAIKAN UTAMA: Paksa menggunakan model 1.5-flash (Kuota 15 RPM)
-        nama_model = 'gemini-1.5-flash'
+        # ---------------------------------------------------------
+        # FITUR RADAR PINTAR (AUTO-DISCOVERY)
+        # Menghindari Error 404 selamanya dengan mencari nama model yang aktif
+        # ---------------------------------------------------------
+        model_list = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        if not model_list:
+            return narasi_awal + "💥 Tidak ada akses ke model AI di kunci API Anda.", "ERROR"
+            
+        # Pilih otomatis: prioritaskan 'flash', jika tidak ada cari 'pro'
+        nama_model = model_list[0]
+        for m in model_list:
+            if 'flash' in m:
+                nama_model = m
+                break
+            elif 'pro' in m:
+                nama_model = m
+                
         model = genai.GenerativeModel(nama_model)
         
         # Eksekusi API
         response = model.generate_content(prompt)
-        time.sleep(10) # Tidur 10 detik untuk memastikan kita tidak melebihi 15 RPM
+        
+        # ---------------------------------------------------------
+        # REM OTOMATIS: WAJIB TIDUR 15 DETIK
+        # Menjamin kita hanya meminta maksimal 4 kali per menit (aman dari limit 5 RPM)
+        # ---------------------------------------------------------
+        time.sleep(15) 
         
         # Ekstraksi Jawaban
-        jawaban_teks = response.text.strip().removeprefix("```json").removesuffix("```").strip()
+        jawaban_teks = response.text.strip().removeprefix("```json").removesuffix("
+```").strip()
         hasil_json = json.loads(jawaban_teks)
         keputusan = hasil_json.get("keputusan", "HOLD")
         
@@ -95,14 +117,14 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         elif keputusan == "SELL": narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN (SELL)"
         else: narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
             
-        # Simpan ke File Memori
+        # Simpan ke File Memori Permanen
         ingatan_ai[kunci_koin] = {"waktu": time.time(), "narasi": narasi_ai_saja, "keputusan": keputusan}
         simpan_ingatan(ingatan_ai)
         
-        return narasi_awal + f"*(Live Data {nama_model})*\n" + narasi_ai_saja, keputusan
+        return narasi_awal + f"*(Live Data: {nama_model})*\n" + narasi_ai_saja, keputusan
 
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg or "Quota" in error_msg:
-            return narasi_awal + "⏳ **Google Rate Limit:** Bot rehat sejenak karena batas 15 permintaan/menit tercapai.", "HOLD"
+            return narasi_awal + "⏳ **Google Rate Limit:** Bot rehat sejenak karena kuota penuh. Pastikan Auto-Pilot dimatikan sementara.", "HOLD"
         return narasi_awal + f"💥 Error API: {e}", "ERROR"
