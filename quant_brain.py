@@ -60,14 +60,30 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         }}
         """
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # --- FITUR RADAR PINTAR (ANTI ERROR 404) ---
+        model_list = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        if not model_list:
+            return narasi_awal + "💥 Tidak ada akses ke model AI di kunci API Anda.", "ERROR"
+            
+        # Prioritaskan mencari nama model yang mengandung kata 'flash'
+        nama_model = model_list[0] # Cadangan jika tidak ada 'flash'
+        for m in model_list:
+            if 'flash' in m:
+                nama_model = m
+                break
+                
+        model = genai.GenerativeModel(nama_model)
+        
+        # Eksekusi API
         response = model.generate_content(prompt)
+        
+        # --- FITUR REM OTOMATIS (ANTI ERROR 429 KUOTA HABIS) ---
         time.sleep(15) 
         
-        # --- PERBAIKAN: METODE PEMBERSIHAN YANG LEBIH AMAN ---
+        # Pembersihan Teks Aman (Anti Syntax Error)
         jawaban_teks = response.text.strip()
-        jawaban_teks = jawaban_teks.replace('```json', '').replace('```', '').strip()
-        # ---------------------------------------------------
+        jawaban_teks = jawaban_teks.replace('```json', '').replace('
+```', '').strip()
             
         hasil_json = json.loads(jawaban_teks)
         keputusan = hasil_json.get("keputusan", "HOLD")
@@ -88,7 +104,7 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         }
         simpan_ingatan(ingatan_ai)
         
-        return narasi_awal + narasi_ai_saja, keputusan
+        return narasi_awal + f"*(Live Data: {nama_model})*\n" + narasi_ai_saja, keputusan
 
     except Exception as e:
         error_msg = str(e)
