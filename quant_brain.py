@@ -1,24 +1,12 @@
-"""
-================================================================================
-FILE: quant_brain.py
-DESKRIPSI: Otak AI (Gemini) dengan sistem penyimpanan memori.
-Kode ini telah dipastikan bebas dari Syntax Error dan memiliki 
-struktur penulisan Python yang baku dan aman.
-================================================================================
-"""
 import pandas as pd
 import google.generativeai as genai
 import json
 import os
 import time
 
-# ==========================================
-# FILE CACHE (PENYIMPANAN INGATAN SEMENTARA)
-# ==========================================
 CACHE_FILE = "ai_api_cache.json"
 
 def baca_ingatan():
-    """Membaca data riwayat analisis dari file JSON agar kuota API hemat."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
@@ -28,47 +16,34 @@ def baca_ingatan():
     return {}
 
 def simpan_ingatan(data):
-    """Menyimpan hasil analisis baru ke dalam file JSON."""
     try:
         with open(CACHE_FILE, 'w') as f:
             json.dump(data, f)
     except Exception:
         pass
 
-# ==========================================
-# FUNGSI UTAMA AI
-# ==========================================
 def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global):
-    """
-    Fungsi ini mengambil data koin, menghubungi Google Gemini, 
-    dan mengembalikan rekomendasi BUY/SELL/HOLD.
-    """
     narasi_awal = f"**🧠 Gemini Quant Engine: {coin} ({timeframe})**\n\nSpot: **Rp {current_price:,.0f}** | Sentimen: **{sentimen_global}/100**\n\n"
     
-    # 1. CEK INGATAN LAMA (CACHE)
     ingatan_ai = baca_ingatan()
     kunci_koin = f"{coin}_{timeframe}"
     waktu_sekarang = time.time()
     
     if kunci_koin in ingatan_ai:
         waktu_terakhir = ingatan_ai[kunci_koin]["waktu"]
-        # Jika memori masih berumur di bawah 15 menit (900 detik), gunakan memori
         if (waktu_sekarang - waktu_terakhir) < 900: 
             return narasi_awal + "*(Membaca memori...)*\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
 
-    # 2. PERSIAPAN KUNCI API
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         return narasi_awal + "⚠️ Kunci API Gemini belum dimasukkan.", "HOLD"
         
     genai.configure(api_key=api_key)
     
-    # 3. CEK DATA MINIMAL
     if len(df_chart) < 20: 
         return narasi_awal + "Data belum cukup...", "HOLD"
     
     try:
-        # 4. SIAPKAN DATA & PERTANYAAN (PROMPT) UNTUK AI
         df_recent = df_chart.tail(20)[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].copy()
         df_recent['Date'] = df_recent['Date'].astype(str)
         tabel_teks = df_recent.to_string(index=False)
@@ -86,12 +61,10 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         }}
         """
         
-        # 5. HUBUNGI AI DAN JEDA WAKTU (MENCEGAH LIMIT)
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
-        time.sleep(15) # Jeda 15 detik agar aman dari batas kuota Google
+        time.sleep(15) 
         
-        # 6. BERSIHKAN TEKS JAWABAN AI
         jawaban_teks = response.text.strip()
         if jawaban_teks.startswith("```json"):
             jawaban_teks = jawaban_teks[7:]
@@ -103,12 +76,10 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
             
         jawaban_teks = jawaban_teks.strip()
         
-        # 7. UBAH KE BENTUK KODE (JSON)
         hasil_json = json.loads(jawaban_teks)
         keputusan = hasil_json.get("keputusan", "HOLD")
         analisis_teks = hasil_json.get("analisis", "Analisis tidak tersedia.")
         
-        # 8. SUSUN PESAN TAMPILAN
         narasi_ai_saja = f"🤖 **Analisis AI:**\n{analisis_teks}\n\n"
         if keputusan == "BUY": 
             narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI (BUY)"
@@ -117,7 +88,6 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         else: 
             narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
             
-        # 9. SIMPAN KE INGATAN
         ingatan_ai[kunci_koin] = {
             "waktu": time.time(),
             "narasi": narasi_ai_saja,
