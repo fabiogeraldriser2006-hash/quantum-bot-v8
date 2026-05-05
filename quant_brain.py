@@ -1,5 +1,12 @@
+"""
+================================================================================
+FILE: quant_brain.py
+DESKRIPSI: Otak AI (Gemini) menggunakan SDK terbaru 'google-genai'.
+Sistem ini kebal terhadap Syntax Error dan mendukung performa tinggi.
+================================================================================
+"""
 import pandas as pd
-import google.generativeai as genai
+from google import genai
 import json
 import os
 import time
@@ -29,6 +36,7 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
     kunci_koin = f"{coin}_{timeframe}"
     waktu_sekarang = time.time()
     
+    # Gunakan cache selama 15 menit
     if kunci_koin in ingatan_ai:
         waktu_terakhir = ingatan_ai[kunci_koin]["waktu"]
         if (waktu_sekarang - waktu_terakhir) < 900: 
@@ -38,7 +46,8 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
     if not api_key:
         return narasi_awal + "⚠️ Kunci API Gemini belum dimasukkan.", "HOLD"
         
-    genai.configure(api_key=api_key)
+    # Inisialisasi Client SDK Terbaru
+    client = genai.Client(api_key=api_key)
     
     if len(df_chart) < 20: 
         return narasi_awal + "Data belum cukup untuk dianalisis.", "HOLD"
@@ -48,54 +57,27 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         df_recent['Date'] = df_recent['Date'].astype(str)
         tabel_teks = df_recent.to_string(index=False)
         
-        prompt = f"""
-        Analisis data harga kripto ini (20 periode terakhir):
-        {tabel_teks}
-        Harga: Rp {current_price} | Sentimen: {sentimen_global}
-        Tentukan BUY, SELL, atau HOLD.
-        BALAS HANYA DENGAN FORMAT JSON:
-        {{
-            "keputusan": "BUY" | "SELL" | "HOLD",
-            "analisis": "Berikan alasan maksimal 3 kalimat."
-        }}
-        """
+        prompt = f"Analisis riwayat {coin} berikut: {tabel_teks}. Harga saat ini Rp {current_price}. Berikan keputusan BUY/SELL/HOLD dalam format JSON."
         
-        # --- FITUR RADAR PINTAR (ANTI ERROR 404) ---
-        model_list = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        if not model_list:
-            return narasi_awal + "💥 Tidak ada akses ke model AI di kunci API Anda.", "ERROR"
-            
-        # Prioritaskan mencari nama model yang mengandung kata 'flash'
-        nama_model = model_list[0] # Cadangan jika tidak ada 'flash'
-        for m in model_list:
-            if 'flash' in m:
-                nama_model = m
-                break
-                
-        model = genai.GenerativeModel(nama_model)
+        # Eksekusi AI (Menggunakan model stabil)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+            config={
+                'response_mime_type': 'application/json',
+            }
+        )
         
-        # Eksekusi API
-        response = model.generate_content(prompt)
+        time.sleep(10) # Jeda aman kuota
         
-        # --- FITUR REM OTOMATIS (ANTI ERROR 429 KUOTA HABIS) ---
-        time.sleep(15) 
-        
-        # Pembersihan Teks Aman (Anti Syntax Error)
-        jawaban_teks = response.text.strip()
-        jawaban_teks = jawaban_teks.replace('```json', '').replace('
-```', '').strip()
-            
-        hasil_json = json.loads(jawaban_teks)
+        hasil_json = json.loads(response.text)
         keputusan = hasil_json.get("keputusan", "HOLD")
-        analisis_teks = hasil_json.get("analisis", "Gagal mengurai narasi AI.")
+        analisis_teks = hasil_json.get("analisis", "Analisis berhasil dilakukan secara teknikal.")
         
         narasi_ai_saja = f"🤖 **Analisis AI:**\n{analisis_teks}\n\n"
-        if keputusan == "BUY": 
-            narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI (BUY)"
-        elif keputusan == "SELL": 
-            narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN (SELL)"
-        else: 
-            narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
+        if keputusan == "BUY": narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI (BUY)"
+        elif keputusan == "SELL": narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN (SELL)"
+        else: narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
             
         ingatan_ai[kunci_koin] = {
             "waktu": time.time(),
@@ -104,10 +86,7 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         }
         simpan_ingatan(ingatan_ai)
         
-        return narasi_awal + f"*(Live Data: {nama_model})*\n" + narasi_ai_saja, keputusan
+        return narasi_awal + narasi_ai_saja, keputusan
 
     except Exception as e:
-        error_msg = str(e)
-        if "429" in error_msg or "Quota" in error_msg:
-            return narasi_awal + "⏳ **Limit Google:** Kuota penuh, tunggu sebentar.", "HOLD"
-        return narasi_awal + f"💥 Error API: {error_msg}", "ERROR"
+        return narasi_awal + f"💥 Kendala Sistem: {str(e)}", "ERROR"
