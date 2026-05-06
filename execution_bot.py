@@ -1,8 +1,9 @@
 """
 ================================================================================
 FILE: execution_bot.py
-VERSI: Full Documentation & Ultimate Features (Fixed Ticker Format)
-DESKRIPSI: Mesin Eksekusi Utama. Mengatur koneksi API Publik & Privat Indodax.
+VERSI: Full Documentation & Ultimate Features (Cloudflare Anti-Block)
+DESKRIPSI: Mesin Eksekusi Utama. Mengatur koneksi API Publik & Privat Indodax,
+serta menjalankan logika AI dan Trailing Stop.
 ================================================================================
 """
 
@@ -17,22 +18,32 @@ import config
 import data_engine
 import quant_brain
 
+# ==============================================================================
+# STATE BOT: Menyimpan status sementara selama bot menyala
+# ==============================================================================
 bot_state = {
     "selected_coin": "Bitcoin (BTC)",
     "last_action": "Sistem bersiap untuk memulai...",
-    "scan_speed": 60,
-    "atr_multiplier": 2.0,
-    "mode_simulasi": True,
-    "cash": 10000000.0,
-    "positions": {},
-    "live_positions": {},
+    "scan_speed": 60,                 # Kecepatan refresh sistem (detik)
+    "atr_multiplier": 2.0,            # Jarak pengaman Trailing Stop
+    "mode_simulasi": True,            # Mode Uang Kertas (True) atau Uang Asli (False)
+    "cash": 10000000.0,               # Modal bohongan untuk mode simulasi
+    "positions": {},                  # Keranjang belanja simulasi
+    "live_positions": {},             # Keranjang belanja uang asli
     "api_key_indodax": "",
     "secret_key_indodax": ""
 }
 
-BOT_IS_RUNNING = False
+BOT_IS_RUNNING = False # Sakelar utama penggerak mesin
 
+# ==============================================================================
+# FUNGSI KONEKSI PRIVATE API (EKSEKUSI BELI/JUAL ASLI)
+# ==============================================================================
 def panggil_api_private_indodax(method, parameter_tambahan=None):
+    """
+    Fungsi khusus untuk mengirim order Beli/Jual dan cek saldo ke akun Indodax Anda.
+    Semua data dienkripsi menggunakan HMAC-SHA512.
+    """
     api_key = bot_state.get("api_key_indodax", "")
     secret_key = bot_state.get("secret_key_indodax", "")
     
@@ -40,6 +51,8 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
         raise ValueError("API Key atau Secret Key Indodax kosong. Harap isi di panel.")
 
     url = "https://indodax.com/tapi"
+    
+    # Parameter wajib dari Indodax
     data = {
         'method': method,
         'timestamp': str(int(time.time() * 1000)),
@@ -50,22 +63,33 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
         data.update(parameter_tambahan)
 
     post_data = urllib.parse.urlencode(data)
+    
+    # Membuat tanda tangan digital (Signature)
     signature = hmac.new(
         secret_key.encode('utf-8'), 
         post_data.encode('utf-8'), 
         hashlib.sha512
     ).hexdigest()
     
+    # Menambahkan User-Agent agar tidak dicurigai sebagai bot jahat oleh server
     headers = {
         'Key': api_key,
         'Sign': signature,
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
     }
     
     response = requests.post(url, headers=headers, data=data, timeout=10)
     return response.json()
 
+# ==============================================================================
+# RUTINITAS UTAMA BOT (LOOPING)
+# ==============================================================================
 def rutinitas_pemindaian():
+    """
+    Jantung dari aplikasi. Berjalan terus-menerus menarik data, 
+    bertanya ke AI, dan mengeksekusi order.
+    """
     global BOT_IS_RUNNING, bot_state
     
     while BOT_IS_RUNNING:
@@ -80,23 +104,22 @@ def rutinitas_pemindaian():
 
             bot_state["last_action"] = f"🔍 Memantau {koin_nama}..."
             
-            # --- LOGIKA KECERDASAN TEKS (MEMISAHKAN PUBLIK & PRIVAT) ---
-            # 1. Ticker Publik: Untuk menarik harga live dari server terbuka (Contoh: 'solidr')
-            ticker_publik = data_koin['ticker'] 
+            # --- PENYEDERHANAAN LOGIKA TEKS ---
+            # Mengambil langsung format dari config.py (Contoh: 'sol_idr')
+            pair_indodax = data_koin['ticker'] 
             
-            # 2. Ticker Privat: Untuk transaksi uang asli. Kita potong 'idr' lalu gabung pakai '_'
-            simbol_koin_kecil = ticker_publik.replace('idr', '') # Menjadi 'sol'
-            pair_indodax = f"{simbol_koin_kecil}_idr"            # Menjadi 'sol_idr'
+            # Membelah teks untuk mendapatkan nama koinnya saja (Contoh: 'sol')
+            simbol_koin_kecil = pair_indodax.split('_')[0] 
             
-            # Menarik Harga Live
+            # Menarik Harga Live dari data_engine (yang sudah memakai penyamaran browser)
             data_live = data_engine.tarik_data_live_indodax()
             
-            # Pengecekan Sabuk Pengaman dengan format Publik
-            if data_live and ticker_publik in data_live:
-                harga_skrg = float(data_live[ticker_publik]['last'])
+            # Sabuk Pengaman: Pastikan data Indodax berhasil ditarik
+            if data_live and pair_indodax in data_live:
+                harga_skrg = float(data_live[pair_indodax]['last'])
                 
                 # Tarik Grafik 15 Menit
-                df_chart, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[ticker_publik])
+                df_chart, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[pair_indodax])
                 
                 if not df_chart.empty:
                     df_chart = data_engine.hitung_indikator_teknikal(df_chart)
@@ -107,20 +130,23 @@ def rutinitas_pemindaian():
                     except Exception:
                         sentimen = 50 
                     
+                    # Meminta keputusan dari AI Gemini
                     narasi, keputusan = quant_brain.prediksi_ai_market(df_chart, koin_nama, harga_skrg, "15m", sentimen)
                     
                     # =================================================================
-                    # MODE SIMULASI
+                    # MODE SIMULASI (PAPER TRADING)
                     # =================================================================
                     if bot_state["mode_simulasi"]:
                         if koin_nama in bot_state["positions"]:
                             pos = bot_state["positions"][koin_nama]
                             
-                            if harga_skrg > pos["high_price"]: pos["high_price"] = harga_skrg
+                            if harga_skrg > pos["high_price"]: 
+                                pos["high_price"] = harga_skrg
+                                
                             batas_jual = pos["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                             
                             if keputusan == "SELL" or harga_skrg <= batas_jual:
-                                hasil_jual = pos["amount"] * harga_skrg * 0.997
+                                hasil_jual = pos["amount"] * harga_skrg * 0.997 # Potong fee
                                 bot_state["cash"] += hasil_jual
                                 del bot_state["positions"][koin_nama] 
                                 alasan = "Sinyal AI" if keputusan == "SELL" else "Terkena Trailing Stop"
@@ -146,13 +172,17 @@ def rutinitas_pemindaian():
                     # =================================================================
                     else:
                         try:
+                            # Mengecek saldo Rupiah dan Koin di dompet Indodax Anda
                             info_akun = panggil_api_private_indodax('getInfo')
                             
                             if info_akun.get('success') == 1:
                                 saldo_idr_asli = float(info_akun['return']['balance']['idr'])
                                 saldo_koin_asli = float(info_akun['return']['balance'].get(simbol_koin_kecil, 0))
+                                
+                                # Mengubah angka di layar UI sesuai uang asli
                                 bot_state['cash'] = saldo_idr_asli
                                 
+                                # LOGIKA JUAL (Jika punya koin)
                                 if saldo_koin_asli > 0.00001: 
                                     if koin_nama not in bot_state["live_positions"]:
                                         bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg}
@@ -165,7 +195,7 @@ def rutinitas_pemindaian():
                                     
                                     if keputusan == "SELL" or harga_skrg <= batas_jual_live:
                                         parameter_jual = {
-                                            'pair': pair_indodax, # Menggunakan format Privat 'sol_idr'
+                                            'pair': pair_indodax,
                                             'type': 'sell',
                                             'price': str(int(harga_skrg)),
                                             simbol_koin_kecil: str(saldo_koin_asli) 
@@ -181,10 +211,11 @@ def rutinitas_pemindaian():
                                     else:
                                         bot_state["last_action"] = f"⚖️ HOLD (Live) | Saldo: {saldo_koin_asli:.4f} {simbol_koin_kecil.upper()} | TS: Rp {batas_jual_live:,.0f}"
                                         
+                                # LOGIKA BELI (Jika ada IDR nganggur)
                                 elif keputusan == "BUY" and saldo_idr_asli > 15000: 
                                     jumlah_beli_idr = saldo_idr_asli * 0.99 
                                     parameter_beli = {
-                                        'pair': pair_indodax, # Menggunakan format Privat 'sol_idr'
+                                        'pair': pair_indodax,
                                         'type': 'buy',
                                         'price': str(int(harga_skrg)),
                                         'idr': str(int(jumlah_beli_idr))
@@ -205,15 +236,20 @@ def rutinitas_pemindaian():
                         except Exception as api_err:
                             bot_state["last_action"] = f"❌ Kesalahan Jaringan Server Indodax: {str(api_err)}"
             
+            # Jika Indodax mengembalikan data kosong, bot sabar menunggu
             elif not data_live:
                 bot_state["last_action"] = f"⚠️ Jaringan lambat, menunggu data dari server Indodax untuk {koin_nama}..."
 
+            # Bot tidur sejenak sesuai kecepatan scan sebelum mengulang (Loop)
             time.sleep(bot_state["scan_speed"])
             
         except Exception as e:
             bot_state["last_action"] = f"⚠️ Jeda Sistem Kritis: {str(e)}"
             time.sleep(15)
 
+# ==============================================================================
+# KONTROL THREAD (MENYALAKAN/MEMATIKAN BOT DARI UI)
+# ==============================================================================
 def mulai_bot_latar_belakang():
     global BOT_IS_RUNNING
     if not BOT_IS_RUNNING:
