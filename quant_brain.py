@@ -1,8 +1,9 @@
 """
 ================================================================================
 FILE: quant_brain.py
-DESKRIPSI: Otak AI Gemini Lengkap (Full Features).
-Menggabungkan Auto-Discovery Model, JSON Parser Aman, dan Manajemen 20 Kuota.
+DESKRIPSI: Otak AI Gemini (Multi-Timeframe Engine).
+Menganalisis Tren Makro (4H) dan Presisi Mikro (15m) secara bersamaan.
+Dilengkapi JSON Parser Aman dan Manajemen Kuota 24 Jam.
 ================================================================================
 """
 import pandas as pd
@@ -11,7 +12,6 @@ import json
 import os
 import time
 
-# File memori untuk menyimpan analisis AI
 CACHE_FILE = "ai_api_cache.json"
 
 def baca_ingatan():
@@ -32,28 +32,29 @@ def simpan_ingatan(data):
     except Exception:
         pass
 
-def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global):
+# ==============================================================================
+# PERUBAHAN UTAMA: PARAMETER MENERIMA DF MAKRO DAN DF MIKRO
+# ==============================================================================
+def prediksi_ai_market(df_macro, df_micro, coin, current_price, sentimen_global):
     """
     Fungsi utama AI. 
-    Mengatur pemanggilan Gemini dengan sistem kuota 24 jam (1 panggil / 72 menit).
+    Mengevaluasi tren 4 Jam (Macro) dan momentum 15 Menit (Micro) sekaligus.
     """
-    narasi_awal = f"**🧠 Gemini Quant Engine: {coin} ({timeframe})**\n\nSpot: **Rp {current_price:,.0f}** | Sentimen: **{sentimen_global}/100**\n\n"
+    narasi_awal = f"**🧠 Gemini Quant Engine (Multi-TF): {coin}**\n\nSpot: **Rp {current_price:,.0f}** | Sentimen: **{sentimen_global}/100**\n\n"
     
     ingatan_ai = baca_ingatan()
-    kunci_koin = f"{coin}_{timeframe}"
+    kunci_koin = f"{coin}_MultiTF" # Kunci cache diperbarui
     waktu_sekarang = time.time()
     
-    # =================================================================
-    # FITUR BARU: MANAJEMEN 20 KUOTA HARIAN (SURVIVAL 24 JAM)
-    # =================================================================
+    # --- MANAJEMEN 20 KUOTA HARIAN (SURVIVAL 24 JAM) ---
     if kunci_koin in ingatan_ai:
         waktu_terakhir = ingatan_ai[kunci_koin]["waktu"]
         selisih_waktu = waktu_sekarang - waktu_terakhir
         
-        # 4320 detik = 72 menit. (1440 menit sehari / 20 kuota = 72 menit)
+        # 4320 detik = 72 menit (1440 menit sehari / 20 kuota = 72 menit)
         if selisih_waktu < 4320:
             sisa_menit = int((4320 - selisih_waktu) / 60)
-            return narasi_awal + f"*(Arsip Memori: Diperbarui {sisa_menit} menit lagi untuk menghemat 20 kuota harian)*\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
+            return narasi_awal + f"*(Arsip Memori: Diperbarui {sisa_menit} menit lagi untuk menghemat kuota)*\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
@@ -61,43 +62,58 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         
     client = genai.Client(api_key=api_key)
     
-    # Pastikan data grafik cukup panjang
-    if len(df_chart) < 20: 
-        return narasi_awal + "Data belum cukup untuk dianalisis.", "HOLD"
+    # Pastikan kedua grafik memiliki data yang cukup
+    if len(df_macro) < 10 or len(df_micro) < 20: 
+        return narasi_awal + "Data belum cukup untuk dianalisis (Butuh Klines Makro & Mikro).", "HOLD"
     
     try:
         # =================================================================
-        # FITUR LAMA: PENYUSUNAN TABEL DATA TERPERINCI
+        # LOGIKA MULTI-TIMEFRAME: MENGGABUNGKAN 2 TABEL DATA
         # =================================================================
-        df_recent = df_chart.tail(20)[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].copy()
-        df_recent['Date'] = df_recent['Date'].astype(str)
-        tabel_teks = df_recent.to_string(index=False)
         
+        # 1. Siapkan Tabel Makro (4 Jam)
+        df_macro_recent = df_macro.tail(5)[['Date', 'Close', 'MACD', 'RSI']].copy()
+        df_macro_recent['Date'] = df_macro_recent['Date'].astype(str)
+        tabel_makro = df_macro_recent.to_string(index=False)
+        
+        # 2. Siapkan Tabel Mikro (15 Menit)
+        df_micro_recent = df_micro.tail(15)[['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'ATR']].copy()
+        df_micro_recent['Date'] = df_micro_recent['Date'].astype(str)
+        tabel_mikro = df_micro_recent.to_string(index=False)
+        
+        # 3. Rancang Prompt Top-Down Analysis
         prompt = f"""
-        Analisis data harga kripto ini (20 periode terakhir):
-        {tabel_teks}
+        Lakukan 'Top-Down Analysis' pada aset kripto {coin}.
+        Harga Spot Saat Ini: Rp {current_price}
+        Sentimen Pasar Makro (Fear & Greed Index): {sentimen_global} (0 = Ketakutan Ekstrem, 100 = Keserakahan Ekstrem).
+
+        DATA MAKRO (Grafik 4 Jam) - Tentukan Tren Utama:
+        {tabel_makro}
         
-        Harga saat ini: Rp {current_price} | Sentimen Global: {sentimen_global}
+        DATA MIKRO (Grafik 15 Menit) - Tentukan Presisi Titik Masuk/Keluar:
+        {tabel_mikro}
         
-        Tentukan BUY, SELL, atau HOLD berdasarkan analisis teknikal.
-        BALAS HANYA DENGAN FORMAT JSON:
+        TUGAS ANDA:
+        1. Baca tren utama dari data 4 Jam (Apakah Bullish atau Bearish?).
+        2. Tentukan keputusan di data 15 Menit HANYA SEARAH dengan tren 4 Jam (Jika 4H Bullish, cari peluang BUY. Jangan Counter-Trend).
+        3. Tentukan keputusan akhir: BUY, SELL, atau HOLD.
+        
+        BALAS HANYA DENGAN FORMAT JSON INI, TANPA KATA-KATA LAIN:
         {{
             "keputusan": "BUY" | "SELL" | "HOLD",
-            "analisis": "Berikan alasan teknikal maksimal 3 kalimat."
+            "analisis": "Berikan 2 kalimat alasan: 1 kalimat kondisi makro 4H, dan 1 kalimat kondisi eksekusi mikro 15M."
         }}
         """
         
-        # =================================================================
-        # FITUR LAMA: RADAR PENCARI MODEL OTOMATIS (ANTI ERROR 404)
-        # =================================================================
-        model_aktif = "gemini-1.5-flash" # Model cadangan utama
+        # --- RADAR PENCARI MODEL OTOMATIS ---
+        model_aktif = "gemini-1.5-flash" 
         try:
             for m in client.models.list():
                 if "flash" in m.name:
                     model_aktif = m.name
                     break
         except Exception:
-            pass # Lanjut menggunakan cadangan jika gagal memindai
+            pass 
         
         # Eksekusi pemanggilan AI
         response = client.models.generate_content(
@@ -108,9 +124,7 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         
         time.sleep(15) # Jeda untuk kestabilan koneksi API
         
-        # =================================================================
-        # FITUR LAMA: PEMBERSIHAN TEKS AMAN (ANTI SYNTAX ERROR)
-        # =================================================================
+        # --- PEMBERSIHAN TEKS AMAN ---
         jawaban_teks = response.text.strip()
         jawaban_teks = jawaban_teks.replace('```json', '').replace('```', '').strip()
         
@@ -119,13 +133,13 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         analisis_teks = hasil_json.get("analisis", "Gagal mengurai narasi AI.")
         
         # Menyusun tampilan antarmuka
-        narasi_ai_saja = f"🤖 **Analisis AI (Model: {model_aktif}):**\n{analisis_teks}\n\n"
+        narasi_ai_saja = f"🤖 **Analisis AI Multi-TF ({model_aktif}):**\n{analisis_teks}\n\n"
         if keputusan == "BUY": 
-            narasi_ai_saja += "✅ **Rekomendasi AI:** EKSEKUSI (BUY)"
+            narasi_ai_saja += "✅ **Rekomendasi Strategis:** EKSEKUSI (BUY)"
         elif keputusan == "SELL": 
-            narasi_ai_saja += "❌ **Rekomendasi AI:** PELEPASAN (SELL)"
+            narasi_ai_saja += "❌ **Rekomendasi Strategis:** PELEPASAN (SELL)"
         else: 
-            narasi_ai_saja += "⚖️ **Rekomendasi AI:** TAHAN (HOLD)"
+            narasi_ai_saja += "⚖️ **Rekomendasi Strategis:** TAHAN (HOLD)"
             
         # Simpan hasil live ke dalam memori
         ingatan_ai[kunci_koin] = {
@@ -139,12 +153,10 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
 
     except Exception as e:
         error_msg = str(e)
-        # =================================================================
-        # FITUR LAMA: FALLBACK DATA JIKA KUOTA BENAR-BENAR HABIS (ERROR 429)
-        # =================================================================
+        # --- FALLBACK DATA JIKA KUOTA HABIS (ERROR 429) ---
         if "429" in error_msg or "Quota" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
             if kunci_koin in ingatan_ai:
                 return narasi_awal + "⏳ **Limit Google (20 Kuota Habis):** Menampilkan data terakhir.\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
             return narasi_awal + "⏳ **Limit Google:** Kuota habis, tunggu siklus besok.", "HOLD"
         
-        return narasi_awal + f"💥 Error API: {error_msg}", "ERROR"
+        return narasi_awal + f"💥 Error API Gemini: {error_msg}", "ERROR"
