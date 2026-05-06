@@ -105,6 +105,7 @@ def rutinitas_pemindaian():
             data_live = data_engine.tarik_data_live_indodax()
             ticker = data_koin['ticker']
             
+            # --- BLOK PENGECEKAN UTAMA ---
             if data_live and ticker in data_live:
                 harga_skrg = float(data_live[ticker]['last'])
                 
@@ -228,8 +229,9 @@ def rutinitas_pemindaian():
                                 
                         except Exception as api_err:
                             bot_state["last_action"] = f"❌ Kesalahan Jaringan Indodax: {str(api_err)}"
-                            
-                elif not data_live:
+            
+            # --- BLOK ALTERNATIF YANG SUDAH DIRAPIKAN ---
+            elif not data_live:
                 bot_state["last_action"] = f"⚠️ Jaringan lambat, menunggu data {koin_nama}..."
 
             time.sleep(bot_state["scan_speed"])
