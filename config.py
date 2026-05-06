@@ -1,50 +1,48 @@
 """
 ================================================================================
 FILE: config.py
-DESKRIPSI: Konfigurasi Daftar Koin Indodax (Penambahan XRP, DOGE & Meme Coins)
+DESKRIPSI: Konfigurasi Daftar Koin Indodax (Format Ticker Diperbaiki)
 ================================================================================
 """
 
-# Daftar koin target untuk bot.
-# Format: "Nama Tampilan di Layar": {"ticker": "Kode API Indodax", "tv": "Kode Grafik TradingView"}
 CRYPTO_MAP = {
     # --- Koin Utama Layer 1 & Altcoin ---
     "Bitcoin (BTC)": {
-        "ticker": "btcidr", 
+        "ticker": "btc_idr", # Ditambahkan garis bawah agar sesuai dengan server Indodax
         "tv": "INDODAX:BTCIDR"
     },
     "Ethereum (ETH)": {
-        "ticker": "ethidr", 
+        "ticker": "eth_idr", 
         "tv": "INDODAX:ETHIDR"
     },
     "Solana (SOL)": {
-        "ticker": "solidr", 
+        "ticker": "sol_idr", 
         "tv": "INDODAX:SOLIDR"
     },
     "Binance Coin (BNB)": {
-        "ticker": "bnbidr", 
+        "ticker": "bnb_idr", 
         "tv": "INDODAX:BNBIDR"
     },
     "Ripple (XRP)": {
-        "ticker": "xrpidr", 
+        "ticker": "xrp_idr", 
         "tv": "INDODAX:XRPIDR"
     },
     
     # --- Meme Coins ---
     "Dogecoin (DOGE)": {
-        "ticker": "dogeidr", 
+        "ticker": "doge_idr", 
         "tv": "INDODAX:DOGEIDR"
     },
     "Shiba Inu (SHIB)": {
-        "ticker": "shibidr", 
+        "ticker": "shib_idr", 
         "tv": "INDODAX:SHIBIDR"
     },
     "Pepe (PEPE)": {
-        "ticker": "pepeidr", 
+        "ticker": "pepe_idr", 
         "tv": "INDODAX:PEPEIDR"
     },
     "Floki (FLOKI)": {
-        "ticker": "flokiidr", 
+        "ticker": "floki_idr", 
         "tv": "INDODAX:FLOKIIDR"
     }
 }
