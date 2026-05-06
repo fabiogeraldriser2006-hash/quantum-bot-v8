@@ -48,19 +48,33 @@ with st.sidebar:
     
     # Mode Trading & Kredensial Indodax
     st.subheader("🏦 Mode Trading")
+    
+    # Toggle Mode Simulasi
     mode_simulasi = st.toggle("Mode Simulasi (Paper Trading)", value=execution_bot.bot_state["mode_simulasi"])
     execution_bot.bot_state["mode_simulasi"] = mode_simulasi
     
     if not mode_simulasi:
-        st.warning("⚠️ MODE LIVE AKTIF. Bot akan menggunakan saldo asli Indodax.")
-        api_key = st.text_input("Indodax API Key", type="password")
-        secret_key = st.text_input("Indodax Secret Key", type="password")
+        st.warning("⚠️ MODE LIVE AKTIF. Bot menggunakan saldo asli Indodax.")
+        
+        # Coba baca dari Streamlit Secrets terlebih dahulu
+        rahasia_api = ""
+        rahasia_secret = ""
+        try:
+            rahasia_api = st.secrets["INDODAX_API_KEY"]
+            rahasia_secret = st.secrets["INDODAX_SECRET_KEY"]
+            st.success("✅ Kredensial Indodax otomatis terdeteksi dari sistem rahasia.")
+        except Exception:
+            st.info("Kredensial otomatis tidak ditemukan. Silakan isi manual di bawah:")
+            
+        # Tampilkan kolom input (akan otomatis terisi jika secrets.toml tersedia)
+        api_key = st.text_input("Indodax API Key", value=rahasia_api, type="password")
+        secret_key = st.text_input("Indodax Secret Key", value=rahasia_secret, type="password")
+        
+        # Simpan ke mesin eksekusi bot
         execution_bot.bot_state["api_key_indodax"] = api_key
         execution_bot.bot_state["secret_key_indodax"] = secret_key
     else:
         st.info("✅ Mode Simulasi Aktif. Menggunakan uang virtual.")
-        
-    st.markdown("---")
     
     # Parameter Keamanan
     st.subheader("🛡️ Manajemen Risiko")
