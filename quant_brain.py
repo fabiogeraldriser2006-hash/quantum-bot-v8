@@ -4,27 +4,31 @@ import json
 import os
 import time
 
-# File untuk menyimpan hasil analisis agar hemat kuota
+# Nama file untuk menyimpan memori analisis
 CACHE_FILE = "ai_api_cache.json"
 
 def baca_ingatan():
+    """Membaca data analisis lama dari file JSON."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
                 return json.load(f)
-        except Exception: return {}
+        except Exception:
+            return {}
     return {}
 
 def simpan_ingatan(data):
+    """Menyimpan data analisis baru ke file JSON."""
     try:
         with open(CACHE_FILE, 'w') as f:
             json.dump(data, f)
-    except Exception: pass
+    except Exception:
+        pass
 
 def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global):
     """
-    Fungsi ini mengatur kapan AI harus dipanggil.
-    Target: 24 jam / 20 kuota = 1 analisis per 72 menit (4320 detik).
+    Menghitung apakah harus memanggil AI atau menggunakan cache.
+    Interval: 72 menit (4320 detik) untuk 20 kuota/24 jam.
     """
     narasi_awal = f"**🧠 Gemini Quant Engine: {coin}**\n\nSpot: **Rp {current_price:,.0f}**\n"
     
@@ -32,27 +36,38 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
     kunci_koin = f"{coin}_{timeframe}"
     waktu_sekarang = time.time()
     
-    # --- LOGIKA SURVIVAL 24 JAM ---
+    # 1. Cek apakah sudah waktunya update (72 menit)
     if kunci_koin in ingatan_ai:
         waktu_terakhir = ingatan_ai[kunci_koin]["waktu"]
         selisih = waktu_sekarang - waktu_terakhir
         
-        # Jika belum lewat 72 menit, gunakan cache
+        # Jika belum 72 menit, gunakan cache agar kuota tidak habis
         if selisih < 4320:
             menit_sisa = int((4320 - selisih) / 60)
-            return narasi_awal + f"*(Mode Hemat: Update {menit_sisa} mnt lagi)*\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
+            return (
+                narasi_awal + f"*(Hemat Kuota: Update {menit_sisa} mnt lagi)*\n\n" + 
+                ingatan_ai[kunci_koin]["narasi"], 
+                ingatan_ai[kunci_koin]["keputusan"]
+            )
 
-    # Ambil API Key dari Environment System
+    # 2. Persiapan Koneksi AI
     api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key: 
-        return narasi_awal + "⚠️ API Key tidak ditemukan!", "HOLD"
+    if not api_key:
+        return narasi_awal + "⚠️ API Key Gemini belum diatur di sistem.", "HOLD"
         
     client = genai.Client(api_key=api_key)
     
     try:
-        # Menyiapkan data teknikal singkat untuk dikirim ke AI
-        data_singkat = df_chart.tail(10)[['Close', 'RSI', 'MACD']].to_string()
-        prompt = f"Analisis koin {coin}. Data: {data_singkat}. Harga: {current_price}. Sentimen: {sentimen_global}. Jawab JSON: keputusan (BUY/SELL/HOLD) & analisis."
+        # 3. Kirim data ke Gemini
+        # Mengambil 10 baris terakhir data teknikal
+        data_teknikal = df_chart.tail(10)[['Close', 'RSI', 'MACD', 'ATR']].to_string()
+        
+        prompt = (
+            f"Analisis koin {coin} ({timeframe}). Data: {data_teknikal}. "
+            f"Harga saat ini: {current_price}. Sentimen: {sentimen_global}. "
+            "Berikan keputusan BUY, SELL, atau HOLD. "
+            "Berikan jawaban dalam format JSON: {'keputusan': '...', 'analisis': '...'}"
+        )
         
         response = client.models.generate_content(
             model="gemini-1.5-flash",
@@ -60,16 +75,16 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
             config={'response_mime_type': 'application/json'}
         )
         
-        # Jeda 10 detik untuk stabilitas koneksi
-        time.sleep(10)
+        # Jeda sebentar untuk stabilitas
+        time.sleep(5)
         
         hasil_json = json.loads(response.text)
         keputusan = hasil_json.get("keputusan", "HOLD")
-        narasi_ai = hasil_json.get("analisis", "Analisis teknikal dilakukan.")
+        narasi_ai = hasil_json.get("analisis", "Analisis teknikal selesai.")
         
-        # Simpan ke cache
+        # 4. Simpan ke Ingatan
         ingatan_ai[kunci_koin] = {
-            "waktu": time.time(),
+            "waktu": waktu_sekarang,
             "narasi": narasi_ai,
             "keputusan": keputusan
         }
@@ -78,6 +93,7 @@ def prediksi_ai_market(df_chart, coin, current_price, timeframe, sentimen_global
         return narasi_awal + "🤖 **Analisis Live:**\n" + narasi_ai, keputusan
 
     except Exception as e:
-        if "429" in str(e):
-            return narasi_awal + "⏳ Kuota penuh, mencoba mode hemat...", "HOLD"
-        return narasi_awal + f"💥 Error API: {str(e)}", "ERROR"
+        # Jika kuota habis (Error 429), otomatis gunakan cache terakhir
+        if "429" in str(e) and kunci_koin in ingatan_ai:
+            return narasi_awal + "⏳ Kuota penuh, menggunakan data cache...\n\n" + ingatan_ai[kunci_koin]["narasi"], ingatan_ai[kunci_koin]["keputusan"]
+        return narasi_awal + f"💥 Kendala API: {str(e)}", "ERROR"
