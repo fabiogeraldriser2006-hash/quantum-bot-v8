@@ -1,9 +1,9 @@
 """
 ================================================================================
 FILE: execution_bot.py
-VERSI: Full Documentation & Ultimate Features (Multi-Timeframe Integration)
-DESKRIPSI: Mesin Eksekusi Utama. Menarik data Makro (4H) & Mikro (15M) 
-untuk disuapkan ke AI Gemini.
+VERSI: Full Documentation & Ultimate Features (Multi-Timeframe + Scoreboard)
+DESKRIPSI: Mesin Eksekusi Utama. Menarik data Makro & Mikro, menjalankan AI, 
+serta mencatat riwayat transaksi untuk Papan Skor Statistik.
 ================================================================================
 """
 
@@ -30,6 +30,7 @@ bot_state = {
     "cash": 10000000.0,               # Modal bohongan untuk mode simulasi
     "positions": {},                  # Keranjang belanja simulasi
     "live_positions": {},             # Keranjang belanja uang asli
+    "trade_history": [],              # BUKU CATATAN UNTUK PAPAN SKOR
     "api_key_indodax": "",
     "secret_key_indodax": ""
 }
@@ -112,9 +113,7 @@ def rutinitas_pemindaian():
             if data_live and pair_indodax in data_live:
                 harga_skrg = float(data_live[pair_indodax]['last'])
                 
-                # =================================================================
-                # FITUR BARU: TARIK 2 GRAFIK SEKALIGUS (MAKRO & MIKRO)
-                # =================================================================
+                # Tarik 2 Grafik Sekaligus (Makro & Mikro)
                 df_macro, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "4h", 50, data_live[pair_indodax])
                 df_micro, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[pair_indodax])
                 
@@ -125,7 +124,7 @@ def rutinitas_pemindaian():
                     df_macro = data_engine.hitung_indikator_teknikal(df_macro)
                     df_micro = data_engine.hitung_indikator_teknikal(df_micro)
                     
-                    # Nilai ATR untuk batas Trailing Stop selalu diambil dari timeframe kecil (presisi)
+                    # Nilai ATR untuk batas Trailing Stop
                     atr_terbaru = float(df_micro.iloc[-1]['ATR'])
                     
                     try:
@@ -133,7 +132,7 @@ def rutinitas_pemindaian():
                     except Exception:
                         sentimen = 50 
                     
-                    # Panggil AI Gemini dan berikan KEDUA grafik tersebut
+                    # Panggil AI Gemini
                     narasi, keputusan = quant_brain.prediksi_ai_market(df_macro, df_micro, koin_nama, harga_skrg, sentimen)
                     
                     # =================================================================
@@ -149,11 +148,26 @@ def rutinitas_pemindaian():
                             batas_jual = pos["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                             
                             if keputusan == "SELL" or harga_skrg <= batas_jual:
-                                hasil_jual = pos["amount"] * harga_skrg * 0.997 # Potong fee
+                                # Perhitungan Profit/Loss
+                                hasil_jual = pos["amount"] * harga_skrg * 0.997 # Potong fee 0.3%
+                                modal_awal = pos["amount"] * pos["buy_price"]
+                                pnl_transaksi = hasil_jual - modal_awal
+                                
                                 bot_state["cash"] += hasil_jual
-                                del bot_state["positions"][koin_nama] 
                                 alasan = "Sinyal AI" if keputusan == "SELL" else "Terkena Trailing Stop"
-                                bot_state["last_action"] = f"✅ SIMULASI JUAL {koin_nama} di Rp {harga_skrg:,.0f} ({alasan})"
+                                
+                                # --- PENCATATAN KE BUKU RIWAYAT (PAPAN SKOR) ---
+                                bot_state["trade_history"].append({
+                                    "waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "koin": koin_nama,
+                                    "harga_beli": pos["buy_price"],
+                                    "harga_jual": harga_skrg,
+                                    "pnl": pnl_transaksi,
+                                    "alasan": alasan
+                                })
+                                
+                                del bot_state["positions"][koin_nama] 
+                                bot_state["last_action"] = f"✅ SIMULASI JUAL {koin_nama} | PnL: Rp {pnl_transaksi:,.0f} ({alasan})"
                             else:
                                 bot_state["last_action"] = f"⚖️ HOLD (Simulasi) | Batas TS: Rp {batas_jual:,.0f}"
 
@@ -187,7 +201,8 @@ def rutinitas_pemindaian():
                                 # LOGIKA JUAL (Jika punya koin)
                                 if saldo_koin_asli > 0.00001: 
                                     if koin_nama not in bot_state["live_positions"]:
-                                        bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg}
+                                        # Jika bot direstart tapi saldo koin ada, fallback harga beli ke harga skrg
+                                        bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg, "buy_price": harga_skrg}
                                         
                                     pos_live = bot_state["live_positions"][koin_nama]
                                     if harga_skrg > pos_live["high_price"]:
@@ -206,7 +221,23 @@ def rutinitas_pemindaian():
                                         
                                         if res_jual.get('success') == 1:
                                             alasan = "Sinyal AI" if keputusan == "SELL" else "Terkena Trailing Stop"
-                                            bot_state["last_action"] = f"✅ LIVE SELL SUKSES: {koin_nama} ({alasan})"
+                                            
+                                            # --- PENCATATAN KE BUKU RIWAYAT LIVE (PAPAN SKOR) ---
+                                            harga_beli_awal = pos_live.get("buy_price", harga_skrg)
+                                            modal_awal = saldo_koin_asli * harga_beli_awal
+                                            hasil_jual = saldo_koin_asli * harga_skrg * 0.997
+                                            pnl_transaksi = hasil_jual - modal_awal
+                                            
+                                            bot_state["trade_history"].append({
+                                                "waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                                "koin": koin_nama,
+                                                "harga_beli": harga_beli_awal,
+                                                "harga_jual": harga_skrg,
+                                                "pnl": pnl_transaksi,
+                                                "alasan": alasan
+                                            })
+                                            
+                                            bot_state["last_action"] = f"✅ LIVE SELL SUKSES: {koin_nama} | PnL: Rp {pnl_transaksi:,.0f} ({alasan})"
                                             del bot_state["live_positions"][koin_nama] 
                                         else:
                                             bot_state["last_action"] = f"⚠️ Gagal Jual Asli: {res_jual.get('error')}"
@@ -226,7 +257,11 @@ def rutinitas_pemindaian():
                                     
                                     if res_beli.get('success') == 1:
                                         bot_state["last_action"] = f"🚀 LIVE BUY SUKSES: {koin_nama} senilai Rp {jumlah_beli_idr:,.0f}"
-                                        bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg} 
+                                        # Simpan harga beli untuk Papan Skor
+                                        bot_state["live_positions"][koin_nama] = {
+                                            "high_price": harga_skrg,
+                                            "buy_price": harga_skrg
+                                        } 
                                     else:
                                         bot_state["last_action"] = f"⚠️ Gagal Beli Asli: {res_beli.get('error')}"
                                         
