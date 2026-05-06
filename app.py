@@ -135,14 +135,16 @@ def render_layar_utama():
             
         st.markdown("---")
         
-        # 2. Area Grafik Candlestick
+       # 2. Area Grafik Candlestick
         st.subheader(f"📈 Grafik Harga {koin_pilihan} (15 Menit)")
         try:
             # Mengambil data live untuk menggambar grafik
             data_live = data_engine.tarik_data_live_indodax()
             ticker = data_koin['ticker']
             
-            if ticker in data_live:
+            # --- SABUK PENGAMAN DITAMBAHKAN DI SINI ---
+            # Pastikan data_live tidak kosong (bukan None) sebelum mengecek ticker
+            if data_live and ticker in data_live:
                 df_chart, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[ticker])
                 
                 if not df_chart.empty:
@@ -165,10 +167,9 @@ def render_layar_utama():
                 else:
                     st.warning("Menunggu data grafik terkumpul...")
             else:
-                st.error("Gagal terhubung ke data live Indodax.")
+                st.warning("Menunggu respons dari server Indodax...")
         except Exception as e:
             st.error(f"Grafik belum siap: {str(e)}")
-
         st.markdown("---")
         
         # 3. Log Aktivitas & Detail Posisi
