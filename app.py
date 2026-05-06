@@ -2,13 +2,14 @@
 ================================================================================
 FILE: app.py
 DESKRIPSI: Dashboard Streamlit Utama (Full Features).
-Menampilkan Candlestick, Kontrol Mode Simulasi/Live, dan Koneksi Indodax.
+Menampilkan Candlestick, Kontrol Bot, Portofolio, dan Dasbor Statistik.
 ================================================================================
 """
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import time
+from datetime import datetime
 import config
 import execution_bot
 import data_engine
@@ -35,7 +36,7 @@ with st.sidebar:
     # Target Koin Tunggal
     st.subheader("🎯 Target Koin")
     daftar_koin = list(config.CRYPTO_MAP.keys())
-    koin_aktif = execution_bot.bot_state.get("selected_coin", "Bitcoin")
+    koin_aktif = execution_bot.bot_state.get("selected_coin", "Bitcoin (BTC)")
     try:
         index_koin = daftar_koin.index(koin_aktif)
     except ValueError:
@@ -62,15 +63,13 @@ with st.sidebar:
         try:
             rahasia_api = st.secrets["INDODAX_API_KEY"]
             rahasia_secret = st.secrets["INDODAX_SECRET_KEY"]
-            st.success("✅ Kredensial Indodax otomatis terdeteksi dari sistem rahasia.")
+            st.success("✅ Kredensial Indodax terdeteksi otomatis.")
         except Exception:
-            st.info("Kredensial otomatis tidak ditemukan. Silakan isi manual di bawah:")
+            st.info("Kredensial otomatis tidak ditemukan. Isi manual:")
             
-        # Tampilkan kolom input (akan otomatis terisi jika secrets.toml tersedia)
         api_key = st.text_input("Indodax API Key", value=rahasia_api, type="password")
         secret_key = st.text_input("Indodax Secret Key", value=rahasia_secret, type="password")
         
-        # Simpan ke mesin eksekusi bot
         execution_bot.bot_state["api_key_indodax"] = api_key
         execution_bot.bot_state["secret_key_indodax"] = secret_key
     else:
@@ -111,7 +110,7 @@ with st.sidebar:
         st.error("🔴 Bot Status: BERHENTI")
 
 # ==============================================================================
-# LAYAR UTAMA (GRAFIK & METRIK)
+# LAYAR UTAMA (GRAFIK, LOG, & METRIK STATISTIK)
 # ==============================================================================
 st.title("🦅 Eagle Focus: Live Market & AI Analysis")
 st.markdown("---")
@@ -131,24 +130,20 @@ def render_layar_utama():
             mode_teks = "SIMULASI" if execution_bot.bot_state["mode_simulasi"] else "LIVE TRADING"
             st.metric("Mode Sistem", mode_teks)
         with col3:
-            st.metric("Cash Balance (Simulasi)", f"Rp {execution_bot.bot_state['cash']:,.0f}")
+            st.metric("Cash Balance", f"Rp {execution_bot.bot_state['cash']:,.0f}")
             
         st.markdown("---")
         
-       # 2. Area Grafik Candlestick
+        # 2. Area Grafik Candlestick
         st.subheader(f"📈 Grafik Harga {koin_pilihan} (15 Menit)")
         try:
-            # Mengambil data live untuk menggambar grafik
             data_live = data_engine.tarik_data_live_indodax()
             ticker = data_koin['ticker']
             
-            # --- SABUK PENGAMAN DITAMBAHKAN DI SINI ---
-            # Pastikan data_live tidak kosong (bukan None) sebelum mengecek ticker
             if data_live and ticker in data_live:
                 df_chart, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[ticker])
                 
                 if not df_chart.empty:
-                    # Membuat Candlestick dengan Plotly
                     fig = go.Figure(data=[go.Candlestick(
                         x=df_chart['Date'],
                         open=df_chart['Open'],
@@ -170,6 +165,7 @@ def render_layar_utama():
                 st.warning("Menunggu respons dari server Indodax...")
         except Exception as e:
             st.error(f"Grafik belum siap: {str(e)}")
+            
         st.markdown("---")
         
         # 3. Log Aktivitas & Detail Posisi
@@ -178,10 +174,10 @@ def render_layar_utama():
         with col_log:
             st.subheader("📝 Catatan Sistem (Live)")
             st.info(execution_bot.bot_state["last_action"])
-            st.caption("Catatan: AI Gemini memperbarui analisis penuh setiap 72 menit untuk menghemat 20 kuota harian. Di sela waktu tersebut, Trailing Stop dan Indikator akan melindungi posisi Anda.")
+            st.caption("Catatan: AI Gemini menganalisis data Makro (4H) dan Mikro (15M) sekaligus. Trailing Stop bekerja secara real-time di latar belakang.")
             
         with col_pos:
-            st.subheader("💼 Portofolio")
+            st.subheader("💼 Portofolio Terbuka")
             if execution_bot.bot_state["positions"]:
                 posisi = execution_bot.bot_state["positions"]
                 df_posisi = pd.DataFrame.from_dict(posisi, orient='index')
@@ -195,6 +191,50 @@ def render_layar_utama():
             else:
                 st.write("Belum ada posisi terbuka.")
 
+        st.markdown("---")
+        
+        # =================================================================
+        # FITUR BARU: 4. STATISTIK KINERJA BOT
+        # =================================================================
+        st.subheader("📊 Papan Skor Kinerja (Riwayat Perdagangan)")
+        
+        # Mengambil riwayat dari bot_state (dengan default list kosong agar tidak error)
+        riwayat_trade = execution_bot.bot_state.get("trade_history", [])
+        
+        # Perhitungan Matematika Papan Skor
+        total_trade = len(riwayat_trade)
+        transaksi_profit = sum(1 for trade in riwayat_trade if trade.get("pnl", 0) > 0)
+        win_rate = (transaksi_profit / total_trade * 100) if total_trade > 0 else 0.0
+        total_pnl = sum(trade.get("pnl", 0) for trade in riwayat_trade)
+        
+        # Menampilkan metrik dalam 3 kolom
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        with col_stat1:
+            st.metric("Total Eksekusi Jual", f"{total_trade} Transaksi")
+        with col_stat2:
+            st.metric("Tingkat Kemenangan (Win Rate)", f"{win_rate:.1f}%")
+        with col_stat3:
+            st.metric("Akumulasi Profit / Loss", f"Rp {total_pnl:,.0f}")
+            
+        # Menampilkan Tabel Riwayat Jika Ada
+        if total_trade > 0:
+            df_history = pd.DataFrame(riwayat_trade)
+            # Menyusun urutan kolom agar rapi
+            df_history = df_history[["waktu", "koin", "harga_beli", "harga_jual", "pnl", "alasan"]]
+            df_history.columns = ["Waktu", "Aset", "Beli (Rp)", "Jual (Rp)", "Profit/Loss (Rp)", "Keterangan Keluar"]
+            
+            # Format tampilan angka di tabel
+            st.dataframe(
+                df_history.style.format({
+                    "Beli (Rp)": "{:,.0f}", 
+                    "Jual (Rp)": "{:,.0f}", 
+                    "Profit/Loss (Rp)": "{:,.0f}"
+                }), 
+                use_container_width=True
+            )
+        else:
+            st.info("Buku catatan masih kosong. Bot belum menyelesaikan transaksi jual apa pun sejak dihidupkan.")
+
 # Render halaman
 render_layar_utama()
 
@@ -202,5 +242,5 @@ render_layar_utama()
 # LOGIKA PENYEGARAN OTOMATIS (AUTO-REFRESH)
 # ==============================================================================
 if execution_bot.BOT_IS_RUNNING:
-    time.sleep(3) # Menyegarkan UI setiap 3 detik agar grafik dan log selalu update
+    time.sleep(3) # Menyegarkan UI setiap 3 detik
     st.rerun()
