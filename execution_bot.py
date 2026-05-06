@@ -1,9 +1,9 @@
 """
 ================================================================================
 FILE: execution_bot.py
-VERSI: Full Documentation & Ultimate Features (Cloudflare Anti-Block)
-DESKRIPSI: Mesin Eksekusi Utama. Mengatur koneksi API Publik & Privat Indodax,
-serta menjalankan logika AI dan Trailing Stop.
+VERSI: Full Documentation & Ultimate Features (Multi-Timeframe Integration)
+DESKRIPSI: Mesin Eksekusi Utama. Menarik data Makro (4H) & Mikro (15M) 
+untuk disuapkan ke AI Gemini.
 ================================================================================
 """
 
@@ -52,7 +52,6 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
 
     url = "https://indodax.com/tapi"
     
-    # Parameter wajib dari Indodax
     data = {
         'method': method,
         'timestamp': str(int(time.time() * 1000)),
@@ -64,14 +63,12 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
 
     post_data = urllib.parse.urlencode(data)
     
-    # Membuat tanda tangan digital (Signature)
     signature = hmac.new(
         secret_key.encode('utf-8'), 
         post_data.encode('utf-8'), 
         hashlib.sha512
     ).hexdigest()
     
-    # Menambahkan User-Agent agar tidak dicurigai sebagai bot jahat oleh server
     headers = {
         'Key': api_key,
         'Sign': signature,
@@ -87,7 +84,7 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
 # ==============================================================================
 def rutinitas_pemindaian():
     """
-    Jantung dari aplikasi. Berjalan terus-menerus menarik data, 
+    Jantung dari aplikasi. Menarik data ganda (4H & 15M), 
     bertanya ke AI, dan mengeksekusi order.
     """
     global BOT_IS_RUNNING, bot_state
@@ -104,34 +101,40 @@ def rutinitas_pemindaian():
 
             bot_state["last_action"] = f"🔍 Memantau {koin_nama}..."
             
-            # --- PENYEDERHANAAN LOGIKA TEKS ---
-            # Mengambil langsung format dari config.py (Contoh: 'sol_idr')
+            # Mempersiapkan format nama koin untuk API
             pair_indodax = data_koin['ticker'] 
-            
-            # Membelah teks untuk mendapatkan nama koinnya saja (Contoh: 'sol')
             simbol_koin_kecil = pair_indodax.split('_')[0] 
             
-            # Menarik Harga Live dari data_engine (yang sudah memakai penyamaran browser)
+            # Menarik Harga Spot Live
             data_live = data_engine.tarik_data_live_indodax()
             
-            # Sabuk Pengaman: Pastikan data Indodax berhasil ditarik
+            # Sabuk Pengaman Koneksi
             if data_live and pair_indodax in data_live:
                 harga_skrg = float(data_live[pair_indodax]['last'])
                 
-                # Tarik Grafik 15 Menit
-                df_chart, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[pair_indodax])
+                # =================================================================
+                # FITUR BARU: TARIK 2 GRAFIK SEKALIGUS (MAKRO & MIKRO)
+                # =================================================================
+                df_macro, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "4h", 50, data_live[pair_indodax])
+                df_micro, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[pair_indodax])
                 
-                if not df_chart.empty:
-                    df_chart = data_engine.hitung_indikator_teknikal(df_chart)
-                    atr_terbaru = float(df_chart.iloc[-1]['ATR'])
+                # Pastikan kedua grafik berhasil ditarik dan tidak kosong
+                if not df_macro.empty and not df_micro.empty:
+                    
+                    # Hitung Indikator Teknikal untuk kedua timeframe
+                    df_macro = data_engine.hitung_indikator_teknikal(df_macro)
+                    df_micro = data_engine.hitung_indikator_teknikal(df_micro)
+                    
+                    # Nilai ATR untuk batas Trailing Stop selalu diambil dari timeframe kecil (presisi)
+                    atr_terbaru = float(df_micro.iloc[-1]['ATR'])
                     
                     try:
                         sentimen = data_engine.tarik_sentimen_global()
                     except Exception:
                         sentimen = 50 
                     
-                    # Meminta keputusan dari AI Gemini
-                    narasi, keputusan = quant_brain.prediksi_ai_market(df_chart, koin_nama, harga_skrg, "15m", sentimen)
+                    # Panggil AI Gemini dan berikan KEDUA grafik tersebut
+                    narasi, keputusan = quant_brain.prediksi_ai_market(df_macro, df_micro, koin_nama, harga_skrg, sentimen)
                     
                     # =================================================================
                     # MODE SIMULASI (PAPER TRADING)
@@ -172,14 +175,13 @@ def rutinitas_pemindaian():
                     # =================================================================
                     else:
                         try:
-                            # Mengecek saldo Rupiah dan Koin di dompet Indodax Anda
+                            # Mengecek saldo Rupiah dan Koin di dompet
                             info_akun = panggil_api_private_indodax('getInfo')
                             
                             if info_akun.get('success') == 1:
                                 saldo_idr_asli = float(info_akun['return']['balance']['idr'])
                                 saldo_koin_asli = float(info_akun['return']['balance'].get(simbol_koin_kecil, 0))
                                 
-                                # Mengubah angka di layar UI sesuai uang asli
                                 bot_state['cash'] = saldo_idr_asli
                                 
                                 # LOGIKA JUAL (Jika punya koin)
@@ -211,7 +213,7 @@ def rutinitas_pemindaian():
                                     else:
                                         bot_state["last_action"] = f"⚖️ HOLD (Live) | Saldo: {saldo_koin_asli:.4f} {simbol_koin_kecil.upper()} | TS: Rp {batas_jual_live:,.0f}"
                                         
-                                # LOGIKA BELI (Jika ada IDR nganggur)
+                                # LOGIKA BELI (Jika ada IDR)
                                 elif keputusan == "BUY" and saldo_idr_asli > 15000: 
                                     jumlah_beli_idr = saldo_idr_asli * 0.99 
                                     parameter_beli = {
@@ -236,11 +238,9 @@ def rutinitas_pemindaian():
                         except Exception as api_err:
                             bot_state["last_action"] = f"❌ Kesalahan Jaringan Server Indodax: {str(api_err)}"
             
-            # Jika Indodax mengembalikan data kosong, bot sabar menunggu
             elif not data_live:
                 bot_state["last_action"] = f"⚠️ Jaringan lambat, menunggu data dari server Indodax untuk {koin_nama}..."
 
-            # Bot tidur sejenak sesuai kecepatan scan sebelum mengulang (Loop)
             time.sleep(bot_state["scan_speed"])
             
         except Exception as e:
