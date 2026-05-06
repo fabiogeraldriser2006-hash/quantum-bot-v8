@@ -1,32 +1,50 @@
 """
-=========================================================
+================================================================================
 FILE: config.py
-DESKRIPSI: Buku catatan pengaturan pusat. 
-Menyimpan variabel global, peta aset kripto, dan konfigurasi API.
-=========================================================
+DESKRIPSI: Konfigurasi Daftar Koin Indodax (Penambahan XRP, DOGE & Meme Coins)
+================================================================================
 """
 
-# 1. BIAYA TRANSAKSI (FEE)
-# Biaya taker fee di Indodax saat ini adalah 0.3%
-FEE_RATE = 0.003 
-
-# 2. PETA ASET KRIPTO (CRYPTO MAP)
-# Kamus ini menghubungkan nama koin dengan kode API Indodax (ticker) 
-# dan kode grafik TradingView (tv).
+# Daftar koin target untuk bot.
+# Format: "Nama Tampilan di Layar": {"ticker": "Kode API Indodax", "tv": "Kode Grafik TradingView"}
 CRYPTO_MAP = {
-    "Bitcoin": {"ticker": "btc_idr", "tv": "BTCIDR"},
-    "Ethereum": {"ticker": "eth_idr", "tv": "ETHIDR"},
-    "Solana": {"ticker": "sol_idr", "tv": "SOLIDR"},
-    "Dogecoin": {"ticker": "doge_idr", "tv": "DOGEIDR"},
-    "Ripple": {"ticker": "xrp_idr", "tv": "XRPIDR"},
-    "Cardano": {"ticker": "ada_idr", "tv": "ADAIDR"},
-    "Pepe": {"ticker": "pepe_idr", "tv": "PEPEIDR"}
+    # --- Koin Utama Layer 1 & Altcoin ---
+    "Bitcoin (BTC)": {
+        "ticker": "btcidr", 
+        "tv": "INDODAX:BTCIDR"
+    },
+    "Ethereum (ETH)": {
+        "ticker": "ethidr", 
+        "tv": "INDODAX:ETHIDR"
+    },
+    "Solana (SOL)": {
+        "ticker": "solidr", 
+        "tv": "INDODAX:SOLIDR"
+    },
+    "Binance Coin (BNB)": {
+        "ticker": "bnbidr", 
+        "tv": "INDODAX:BNBIDR"
+    },
+    "Ripple (XRP)": {
+        "ticker": "xrpidr", 
+        "tv": "INDODAX:XRPIDR"
+    },
+    
+    # --- Meme Coins ---
+    "Dogecoin (DOGE)": {
+        "ticker": "dogeidr", 
+        "tv": "INDODAX:DOGEIDR"
+    },
+    "Shiba Inu (SHIB)": {
+        "ticker": "shibidr", 
+        "tv": "INDODAX:SHIBIDR"
+    },
+    "Pepe (PEPE)": {
+        "ticker": "pepeidr", 
+        "tv": "INDODAX:PEPEIDR"
+    },
+    "Floki (FLOKI)": {
+        "ticker": "flokiidr", 
+        "tv": "INDODAX:FLOKIIDR"
+    }
 }
-
-# 3. PENGATURAN MODAL AWAL VIRTUAL (SIMULASI)
-MODAL_AWAL_DEFAULT = 1000000000.0 # Rp 1.000.000.000
-
-# 4. PENGATURAN URL API INDODAX
-INDODAX_TAPI_URL = "https://indodax.com/tapi"
-INDODAX_PUBLIC_API_URL = "https://indodax.com/api/tickers"
-ALTERNATIVE_ME_API_URL = "https://api.alternative.me/fng/?limit=1"
