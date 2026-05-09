@@ -13,6 +13,7 @@ from datetime import datetime
 import config
 import execution_bot
 import data_engine
+import anime_assistant # <--- TAMBAHAN: Mengimpor modul asisten anime
 
 # 1. PENGATURAN HALAMAN DASBOR
 st.set_page_config(
@@ -108,6 +109,11 @@ with st.sidebar:
         st.success("🟢 Bot Status: BERJALAN")
     else:
         st.error("🔴 Bot Status: BERHENTI")
+
+    # =================================================================
+    # FITUR BARU: ASISTEN ANIME DI SIDEBAR BAWAH
+    # =================================================================
+    anime_assistant.tampilkan_asisten(execution_bot.bot_state) # <--- TAMBAHAN: Memanggil asisten anime
 
 # ==============================================================================
 # LAYAR UTAMA (GRAFIK, LOG, & METRIK STATISTIK)
