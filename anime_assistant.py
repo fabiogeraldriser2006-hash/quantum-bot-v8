@@ -14,38 +14,38 @@ def tampilkan_asisten(bot_state):
     st.markdown("---")
     st.caption("🌸 **Eagle-Chan siap menemanimu!**")
 
-    # Kode SVG murni untuk menggambar wajah karakter bergaya anime
-    # Menggunakan HTML tag agar bisa dibaca langsung oleh Streamlit
+    # Kode SVG murni TANPA spasi berlebih di pinggir kiri
+    # Hal ini mencegah Streamlit mengiranya sebagai teks blok kode
     svg_karakter = """
-    <div style="display: flex; justify-content: center;">
-        <svg width="150" height="150" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-            <!-- Wajah -->
-            <circle cx="50" cy="50" r="40" fill="#ffe0bd" /> 
-            
-            <!-- Rambut (Poni) -->
-            <path d="M 10 50 Q 50 -10 90 50 Q 50 20 10 50" fill="#4a148c" />
-            <path d="M 10 50 Q 30 100 20 90 Q 20 40 10 50" fill="#4a148c" />
-            <path d="M 90 50 Q 70 100 80 90 Q 80 40 90 50" fill="#4a148c" />
-            
-            <!-- Mata Kiri (Anime Style: Besar dan memanjang) -->
-            <ellipse cx="33" cy="55" rx="7" ry="12" fill="#283593" /> 
-            <circle cx="31" cy="51" r="3" fill="white" /> <!-- Pantulan cahaya -->
-            <path d="M 23 45 Q 33 40 42 46" stroke="#1a237e" stroke-width="2" fill="transparent"/> <!-- Alis/Bulu mata atas -->
-            
-            <!-- Mata Kanan -->
-            <ellipse cx="67" cy="55" rx="7" ry="12" fill="#283593" /> 
-            <circle cx="65" cy="51" r="3" fill="white" /> <!-- Pantulan cahaya -->
-            <path d="M 58 46 Q 67 40 77 45" stroke="#1a237e" stroke-width="2" fill="transparent"/> <!-- Alis/Bulu mata atas -->
-            
-            <!-- Pipi Merona (Blush) -->
-            <ellipse cx="25" cy="65" rx="5" ry="3" fill="#ff8a80" opacity="0.6"/>
-            <ellipse cx="75" cy="65" rx="5" ry="3" fill="#ff8a80" opacity="0.6"/>
-            
-            <!-- Mulut Senyum -->
-            <path d="M 45 72 Q 50 78 55 72" stroke="#d32f2f" stroke-width="2" fill="transparent"/>
-        </svg>
-    </div>
-    """
+<div style="display: flex; justify-content: center;">
+    <svg width="150" height="150" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <!-- Wajah -->
+        <circle cx="50" cy="50" r="40" fill="#ffe0bd" /> 
+        
+        <!-- Rambut (Poni) -->
+        <path d="M 10 50 Q 50 -10 90 50 Q 50 20 10 50" fill="#4a148c" />
+        <path d="M 10 50 Q 30 100 20 90 Q 20 40 10 50" fill="#4a148c" />
+        <path d="M 90 50 Q 70 100 80 90 Q 80 40 90 50" fill="#4a148c" />
+        
+        <!-- Mata Kiri (Anime Style) -->
+        <ellipse cx="33" cy="55" rx="7" ry="12" fill="#283593" /> 
+        <circle cx="31" cy="51" r="3" fill="white" /> 
+        <path d="M 23 45 Q 33 40 42 46" stroke="#1a237e" stroke-width="2" fill="transparent"/> 
+        
+        <!-- Mata Kanan -->
+        <ellipse cx="67" cy="55" rx="7" ry="12" fill="#283593" /> 
+        <circle cx="65" cy="51" r="3" fill="white" /> 
+        <path d="M 58 46 Q 67 40 77 45" stroke="#1a237e" stroke-width="2" fill="transparent"/> 
+        
+        <!-- Pipi Merona (Blush) -->
+        <ellipse cx="25" cy="65" rx="5" ry="3" fill="#ff8a80" opacity="0.6"/>
+        <ellipse cx="75" cy="65" rx="5" ry="3" fill="#ff8a80" opacity="0.6"/>
+        
+        <!-- Mulut Senyum -->
+        <path d="M 45 72 Q 50 78 55 72" stroke="#d32f2f" stroke-width="2" fill="transparent"/>
+    </svg>
+</div>
+"""
     
     # Merender kode gambar di atas ke layar Streamlit
     st.markdown(svg_karakter, unsafe_allow_html=True)
