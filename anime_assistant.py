@@ -1,8 +1,8 @@
 """
 ================================================================================
 FILE: anime_assistant.py
-DESKRIPSI: Modul Asisten Anime Interaktif dengan fitur Multi-Ekspresi (Image Swapping).
-Karakter bereaksi dengan mengganti wajah saat di-hover dan di-klik.
+DESKRIPSI: Modul Asisten Anime Interaktif dengan fitur Multi-Ekspresi.
+Menggunakan teknik Replace String murni agar aman dari NameError/SyntaxError Python.
 ================================================================================
 """
 import streamlit as st
@@ -39,62 +39,62 @@ def tampilkan_asisten(bot_state):
     img_senyum_src = f"data:image/png;base64,{b64_senyum}" if b64_senyum else img_normal_src
     img_kaget_src = f"data:image/png;base64,{b64_kaget}" if b64_kaget else img_normal_src
 
-    # 2. TEMPLATE HTML & JAVASCRIPT UNTUK SWAPPING
-    html_template = f"""
+    # 2. TEMPLATE HTML & JAVASCRIPT (TANPA f-string AWALAN)
+    html_template = """
     <!DOCTYPE html>
     <html>
     <head>
     <style>
-        body {{ 
+        body { 
             margin: 0; display: flex; justify-content: center; align-items: flex-end; 
             height: 380px; overflow: hidden; background-color: transparent; 
             perspective: 1000px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }}
+        }
         
-        #tiltWrap {{
+        #tiltWrap {
             transform-style: preserve-3d; transition: transform 0.1s ease-out; position: relative;
-        }}
+        }
 
-        #charWrap {{
+        #charWrap {
             display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
             cursor: pointer; animation: float 4s ease-in-out infinite; position: relative;
-        }}
+        }
 
-        @keyframes float {{
-            0%, 100% {{ transform: translateY(0px); }}
-            50% {{ transform: translateY(-12px); }}
-        }}
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-12px); }
+        }
 
-        .jump-anim {{ animation: jump 0.4s ease; }}
+        .jump-anim { animation: jump 0.4s ease; }
 
-        @keyframes jump {{
-            0%, 100% {{ transform: translateY(0px) scale(1); }}
-            50% {{ transform: translateY(-40px) scale(1.05); }}
-        }}
+        @keyframes jump {
+            0%, 100% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(-40px) scale(1.05); }
+        }
 
-        .assistant-image {{
+        .assistant-image {
             height: 300px; width: auto; object-fit: contain;
             transition: filter 0.3s ease; filter: drop-shadow(0px 5px 10px rgba(0,0,0,0.3));
-        }}
+        }
 
-        #charWrap:hover .assistant-image {{
+        #charWrap:hover .assistant-image {
             filter: drop-shadow(0px 0px 15px rgba(255, 105, 180, 0.7));
-        }}
+        }
 
-        #bubble {{
+        #bubble {
             position: absolute; top: -30px; left: 50%; transform: translateX(-50%);
             background: white; padding: 8px 15px; border-radius: 15px;
             border: 2px solid #ff8a80; color: #333; font-weight: bold; font-size: 13px;
             white-space: nowrap; box-shadow: 0 4px 8px rgba(0,0,0,0.2);
             opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 10;
-        }}
+        }
 
-        #bubble::after {{
+        #bubble::after {
             content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
             border-width: 8px 8px 0; border-style: solid; border-color: #ff8a80 transparent transparent transparent;
-        }}
+        }
 
-        #bubble.show {{ opacity: 1; }}
+        #bubble.show { opacity: 1; }
     </style>
     </head>
     <body>
@@ -102,7 +102,7 @@ def tampilkan_asisten(bot_state):
         <div id="tiltWrap">
             <div id="charWrap">
                 <div id="bubble">Halo!</div>
-                <img id="animeKarakter" src="{img_normal_src}" alt="Gadis Anime" class="assistant-image">
+                <img id="animeKarakter" src="SRC_NORMAL_PLACEHOLDER" alt="Gadis Anime" class="assistant-image">
             </div>
         </div>
 
@@ -112,27 +112,28 @@ def tampilkan_asisten(bot_state):
             const bubble = document.getElementById('bubble');
             const imgKarakter = document.getElementById('animeKarakter');
             
-            // Variabel penyimpan sumber gambar ekspresi
-            const srcNormal = "{img_normal_src}";
-            const srcSenyum = "{img_senyum_src}";
-            const srcKaget = "{img_kaget_src}";
+            // Variabel penyimpan sumber gambar ekspresi (Akan diganti oleh Python nanti)
+            const srcNormal = "SRC_NORMAL_PLACEHOLDER";
+            const srcSenyum = "SRC_SENYUM_PLACEHOLDER";
+            const srcKaget = "SRC_KAGET_PLACEHOLDER";
 
             // 1. Efek 3D Mouse Tracking
-            document.addEventListener('mousemove', (e) => {{
+            document.addEventListener('mousemove', (e) => {
                 let xAxis = (window.innerWidth / 2 - e.pageX) / 40;
                 let yAxis = (window.innerHeight / 2 - e.pageY) / 40;
-                tiltWrap.style.transform = `rotateY(${-xAxis}deg) rotateX(${{yAxis}}deg)`;
-            }});
+                // JS Asli, aman karena Python tidak lagi memproses string ini secara otomatis
+                tiltWrap.style.transform = `rotateY(${-xAxis}deg) rotateX(${yAxis}deg)`;
+            });
 
             // 2. EKSPRESI 1: Tersenyum saat kursor didekatkan (Hover)
-            charWrap.addEventListener('mouseenter', () => {{
+            charWrap.addEventListener('mouseenter', () => {
                 imgKarakter.src = srcSenyum;
-            }});
+            });
 
             // Kembali ke ekspresi normal saat kursor menjauh
-            charWrap.addEventListener('mouseleave', () => {{
+            charWrap.addEventListener('mouseleave', () => {
                 imgKarakter.src = srcNormal;
-            }});
+            });
 
             const kataKata = [
                 "Semangat terus, Fabio!",
@@ -142,8 +143,7 @@ def tampilkan_asisten(bot_state):
             ];
 
             // 3. EKSPRESI 2: Kaget/Antusias saat diklik
-            charWrap.addEventListener('click', () => {{
-                // Ubah ekspresi jadi kaget
+            charWrap.addEventListener('click', () => {
                 imgKarakter.src = srcKaget;
 
                 charWrap.classList.remove('jump-anim');
@@ -154,23 +154,27 @@ def tampilkan_asisten(bot_state):
                 bubble.innerText = randomTeks;
                 bubble.classList.add('show');
 
-                // Kembalikan ke ekspresi normal/senyum setelah 2 detik
-                setTimeout(() => {{
+                setTimeout(() => {
                     bubble.classList.remove('show');
-                    // Cek apakah mouse masih di atas karakter atau tidak
-                    if(charWrap.matches(':hover')) {{
+                    if(charWrap.matches(':hover')) {
                         imgKarakter.src = srcSenyum;
-                    }} else {{
+                    } else {
                         imgKarakter.src = srcNormal;
-                    }}
-                }}, 2000);
-            }});
+                    }
+                }, 2000);
+            });
         </script>
     </body>
     </html>
     """
     
-    components.html(html_template, height=400)
+    # 3. MENGGANTI PLACEHOLDER SECARA MANUAL (100% AMAN DARI ERROR)
+    html_final = html_template.replace("SRC_NORMAL_PLACEHOLDER", img_normal_src)
+    html_final = html_final.replace("SRC_SENYUM_PLACEHOLDER", img_senyum_src)
+    html_final = html_final.replace("SRC_KAGET_PLACEHOLDER", img_kaget_src)
+    
+    # Merender ke Streamlit
+    components.html(html_final, height=400)
     
     # Logika teks responsif berdasarkan PnL
     total_pnl = sum(trade.get("pnl", 0) for trade in bot_state.get("trade_history", []))
