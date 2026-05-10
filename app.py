@@ -44,7 +44,7 @@ def check_password():
         # Tampilan Awal Login
         st.title("🔒 Area Terbatas: Eagle Focus OS")
         st.text_input("🔑 Masukkan PIN/Password untuk mengakses Dasbor:", type="password", on_change=password_entered, key="password_input")
-        st.caption("💡 *Hint: Default password adalah **eagle123***")
+        st.caption("🔒 Akses ini dicatat oleh sistem keamanan.")
         return False
     
     elif not st.session_state["password_correct"]:
