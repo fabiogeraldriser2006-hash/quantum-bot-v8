@@ -1,7 +1,7 @@
 """
 ================================================================================
 FILE: execution_bot.py
-VERSI: Ultimate Integrated (Multi-Timeframe + Scoreboard + SQLite Database + Net Take Profit)
+VERSI: Ultimate Integrated (Multi-Timeframe + Scoreboard + SQLite Database + Net Take Profit + Portfolio)
 DESKRIPSI: Mesin Eksekusi Utama. Menarik data Makro & Mikro, menjalankan AI, 
 serta mencatat riwayat transaksi secara PERMANEN ke SQLite.
 =========================================================
@@ -31,7 +31,7 @@ bot_state = {
     "last_action": "Sistem dimuat dari database permanen...",
     "scan_speed": 60,                 # Kecepatan refresh sistem (detik)
     "atr_multiplier": 2.0,            # Jarak pengaman Trailing Stop
-    "take_profit_pct": 1.0,           # <--- DIUBAH: Target Net Profit 1.0%
+    "take_profit_pct": 1.0,           # Target Net Profit 1.0%
     "mode_simulasi": True,            # Mode Uang Kertas (True) atau Uang Asli (False)
     "cash": data_tersimpan["cash"],   # Saldo dimuat dari DB
     "positions": data_tersimpan["positions"],     # Posisi simulasi dari DB
@@ -78,6 +78,36 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
     
     response = requests.post(url, headers=headers, data=data, timeout=10)
     return response.json()
+
+# ==============================================================================
+# TAMBAHAN BARU: FUNGSI UNTUK MENARIK SELURUH ASET DOMPET
+# ==============================================================================
+def ambil_seluruh_aset():
+    """Menarik semua saldo koin yang kita miliki di Indodax untuk ditampilkan di UI"""
+    try:
+        res = panggil_api_private_indodax('getInfo')
+        if res.get('success') == 1:
+            balances = res['return'].get('balance', {})
+            frozen = res['return'].get('frozen', {})
+            
+            daftar_aset = []
+            for koin, jumlah in balances.items():
+                try:
+                    jumlah_float = float(jumlah)
+                    tertahan_float = float(frozen.get(koin, 0))
+                    # Memfilter koin yang nominalnya berarti dan mengabaikan idr karena sudah ada indikator khusus
+                    if (jumlah_float > 0.00001 or tertahan_float > 0.00001) and koin != 'idr':
+                        daftar_aset.append({
+                            "Aset": koin.upper(),
+                            "Tersedia": jumlah_float,
+                            "Tertahan (Order)": tertahan_float
+                        })
+                except:
+                    pass
+            return daftar_aset
+    except Exception as e:
+        return []
+    return []
 
 # ==============================================================================
 # RUTINITAS UTAMA BOT (LOOPING) DENGAN INTEGRASI DATABASE
@@ -127,13 +157,13 @@ def rutinitas_pemindaian():
                                 
                             batas_jual = pos["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                             
-                            # <--- DIUBAH: Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu) --->
+                            # Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu)
                             harga_jual_bersih = harga_skrg * 0.997
                             persentase_profit_bersih = ((harga_jual_bersih - pos["buy_price"]) / pos["buy_price"]) * 100
                             kondisi_take_profit = persentase_profit_bersih >= bot_state["take_profit_pct"]
                             
                             if keputusan == "SELL" or harga_skrg <= batas_jual or kondisi_take_profit:
-                                hasil_jual = pos["amount"] * harga_jual_bersih # hasil_jual_bersih sudah include 0.997
+                                hasil_jual = pos["amount"] * harga_jual_bersih 
                                 modal_awal = pos["amount"] * pos["buy_price"]
                                 pnl_transaksi = hasil_jual - modal_awal
                                 
@@ -188,12 +218,16 @@ def rutinitas_pemindaian():
                                 if saldo_koin_asli > 0.00001: 
                                     if koin_nama not in bot_state["live_positions"]:
                                         bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg, "buy_price": harga_skrg}
+                                        # <--- TAMBAHAN: Menyimpan dan Melaporkan Adopsi Koin Manual --->
+                                        database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
+                                        bot_state["last_action"] = f"📥 Mengadopsi aset manual {koin_nama} dari wallet."
+                                        time.sleep(2) # Beri jeda sebentar agar notifikasi terbaca
                                         
                                     pos_live = bot_state["live_positions"][koin_nama]
                                     if harga_skrg > pos_live["high_price"]: pos_live["high_price"] = harga_skrg
                                     batas_jual_live = pos_live["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                                     
-                                    # <--- DIUBAH: Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu) (Live) --->
+                                    # Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu) (Live)
                                     harga_jual_bersih = harga_skrg * 0.997
                                     persentase_profit_bersih = ((harga_jual_bersih - pos_live["buy_price"]) / pos_live["buy_price"]) * 100
                                     kondisi_take_profit = persentase_profit_bersih >= bot_state["take_profit_pct"]
