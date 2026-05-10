@@ -3,7 +3,7 @@
 FILE: app.py
 DESKRIPSI: Dashboard Streamlit Utama (Full Features).
 Menampilkan Candlestick, Kontrol Bot, Portofolio, Dasbor Statistik, Dompet Live,
-dan Sistem Keamanan Login (Anti-Intrusion).
+dan Sistem Keamanan Login (Anti-Intrusion & Anti-KeyError).
 ================================================================================
 """
 import streamlit as st
@@ -14,7 +14,7 @@ from datetime import datetime
 import config
 import execution_bot
 import data_engine
-import anime_assistant # <--- TAMBAHAN: Mengimpor modul asisten anime
+import anime_assistant
 
 # 1. PENGATURAN HALAMAN DASBOR
 st.set_page_config(
@@ -34,9 +34,14 @@ def check_password():
         # Mengambil password dari secrets atau default 'eagle123'
         correct_password = st.secrets.get("APP_PASSWORD", "eagle123")
         
-        if st.session_state["password_input"] == correct_password:
+        # PERBAIKAN: Gunakan .get() agar aman dari KeyError meskipun state kosong
+        input_user = st.session_state.get("password_input", "")
+        
+        if input_user == correct_password:
             st.session_state["password_correct"] = True
-            del st.session_state["password_input"] # hapus password dari cache
+            # Hapus password dari cache dengan perlindungan tambahan
+            if "password_input" in st.session_state:
+                del st.session_state["password_input"]
         else:
             st.session_state["password_correct"] = False
 
@@ -44,7 +49,6 @@ def check_password():
         # Tampilan Awal Login
         st.title("🔒 Area Terbatas: Eagle Focus OS")
         st.text_input("🔑 Masukkan PIN/Password untuk mengakses Dasbor:", type="password", on_change=password_entered, key="password_input")
-        st.caption("🔒 Akses ini dicatat oleh sistem keamanan.")
         return False
     
     elif not st.session_state["password_correct"]:
@@ -159,7 +163,7 @@ with st.sidebar:
     st.markdown("---")
 
     # =================================================================
-    # FITUR DOMPET INDODAX (TETAP ADA)
+    # FITUR DOMPET INDODAX
     # =================================================================
     if not mode_simulasi:
         with st.expander("💰 Lihat Dompet Indodax"):
@@ -176,7 +180,7 @@ with st.sidebar:
             st.info("Matikan Mode Simulasi untuk melihat saldo Indodax asli.")
 
     # =================================================================
-    # ASISTEN ANIME (TETAP ADA)
+    # ASISTEN ANIME
     # =================================================================
     anime_assistant.tampilkan_asisten(execution_bot.bot_state)
 
