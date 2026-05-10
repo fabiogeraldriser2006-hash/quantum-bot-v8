@@ -29,7 +29,7 @@ def tampilkan_asisten(bot_state):
 
     # 1. Membaca gambar karakter dari folder project
     # Ganti "karakter.jpg" dengan nama file gambar anime Anda
-    nama_file_gambar = "karakter.jpg" 
+    nama_file_gambar = "karakter.png" 
     b64_image = get_base64_of_bin_file(nama_file_gambar)
 
     if b64_image:
