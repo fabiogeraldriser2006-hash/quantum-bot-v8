@@ -1,7 +1,7 @@
 """
 ================================================================================
 FILE: execution_bot.py
-VERSI: Ultimate Integrated (Multi-Timeframe + Scoreboard + SQLite Database)
+VERSI: Ultimate Integrated (Multi-Timeframe + Scoreboard + SQLite Database + Net Take Profit)
 DESKRIPSI: Mesin Eksekusi Utama. Menarik data Makro & Mikro, menjalankan AI, 
 serta mencatat riwayat transaksi secara PERMANEN ke SQLite.
 =========================================================
@@ -31,6 +31,7 @@ bot_state = {
     "last_action": "Sistem dimuat dari database permanen...",
     "scan_speed": 60,                 # Kecepatan refresh sistem (detik)
     "atr_multiplier": 2.0,            # Jarak pengaman Trailing Stop
+    "take_profit_pct": 1.0,           # <--- DIUBAH: Target Net Profit 1.0%
     "mode_simulasi": True,            # Mode Uang Kertas (True) atau Uang Asli (False)
     "cash": data_tersimpan["cash"],   # Saldo dimuat dari DB
     "positions": data_tersimpan["positions"],     # Posisi simulasi dari DB
@@ -126,17 +127,29 @@ def rutinitas_pemindaian():
                                 
                             batas_jual = pos["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                             
-                            if keputusan == "SELL" or harga_skrg <= batas_jual:
-                                hasil_jual = pos["amount"] * harga_skrg * 0.997
+                            # <--- DIUBAH: Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu) --->
+                            harga_jual_bersih = harga_skrg * 0.997
+                            persentase_profit_bersih = ((harga_jual_bersih - pos["buy_price"]) / pos["buy_price"]) * 100
+                            kondisi_take_profit = persentase_profit_bersih >= bot_state["take_profit_pct"]
+                            
+                            if keputusan == "SELL" or harga_skrg <= batas_jual or kondisi_take_profit:
+                                hasil_jual = pos["amount"] * harga_jual_bersih # hasil_jual_bersih sudah include 0.997
                                 modal_awal = pos["amount"] * pos["buy_price"]
                                 pnl_transaksi = hasil_jual - modal_awal
+                                
+                                if kondisi_take_profit:
+                                    alasan_jual = f"Net Take Profit (+{persentase_profit_bersih:.2f}%)"
+                                elif keputusan == "SELL":
+                                    alasan_jual = "Sinyal AI"
+                                else:
+                                    alasan_jual = "Trailing Stop"
                                 
                                 # 1. Simpan ke Riwayat Database (Scoreboard)
                                 trade_log = {
                                     "waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "koin": koin_nama, "harga_beli": pos["buy_price"],
                                     "harga_jual": harga_skrg, "pnl": pnl_transaksi,
-                                    "alasan": "Sinyal AI" if keputusan == "SELL" else "Trailing Stop"
+                                    "alasan": alasan_jual
                                 }
                                 database.simpan_trade(trade_log)
                                 
@@ -147,9 +160,9 @@ def rutinitas_pemindaian():
                                 
                                 # 3. Sinkronkan Status Aktif ke Database
                                 database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
-                                bot_state["last_action"] = f"✅ SIMULASI JUAL {koin_nama} | PnL: Rp {pnl_transaksi:,.0f}"
+                                bot_state["last_action"] = f"✅ SIMULASI JUAL {koin_nama} | {alasan_jual} | PnL: Rp {pnl_transaksi:,.0f}"
                             else:
-                                bot_state["last_action"] = f"⚖️ HOLD (Simulasi) | TS: Rp {batas_jual:,.0f}"
+                                bot_state["last_action"] = f"⚖️ HOLD (Sim) | Net Profit: {persentase_profit_bersih:.2f}% | TS: Rp {batas_jual:,.0f}"
 
                         elif keputusan == "BUY" and bot_state["cash"] > 100000:
                             koin_didapat = (bot_state["cash"] / harga_skrg) * 0.997
@@ -180,7 +193,12 @@ def rutinitas_pemindaian():
                                     if harga_skrg > pos_live["high_price"]: pos_live["high_price"] = harga_skrg
                                     batas_jual_live = pos_live["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                                     
-                                    if keputusan == "SELL" or harga_skrg <= batas_jual_live:
+                                    # <--- DIUBAH: Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu) (Live) --->
+                                    harga_jual_bersih = harga_skrg * 0.997
+                                    persentase_profit_bersih = ((harga_jual_bersih - pos_live["buy_price"]) / pos_live["buy_price"]) * 100
+                                    kondisi_take_profit = persentase_profit_bersih >= bot_state["take_profit_pct"]
+                                    
+                                    if keputusan == "SELL" or harga_skrg <= batas_jual_live or kondisi_take_profit:
                                         parameter_jual = {
                                             'pair': pair_indodax, 'type': 'sell',
                                             'price': str(int(harga_skrg)), simbol_koin_kecil: str(saldo_koin_asli) 
@@ -189,22 +207,29 @@ def rutinitas_pemindaian():
                                         if res_jual.get('success') == 1:
                                             # Hitung PnL dan Simpan ke DB
                                             modal_awal = saldo_koin_asli * pos_live["buy_price"]
-                                            hasil_jual = saldo_koin_asli * harga_skrg * 0.997
+                                            hasil_jual = saldo_koin_asli * harga_jual_bersih
                                             pnl = hasil_jual - modal_awal
+                                            
+                                            if kondisi_take_profit:
+                                                alasan_jual = f"Net Take Profit (+{persentase_profit_bersih:.2f}%)"
+                                            elif keputusan == "SELL":
+                                                alasan_jual = "Sinyal AI"
+                                            else:
+                                                alasan_jual = "Trailing Stop"
                                             
                                             database.simpan_trade({
                                                 "waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                                 "koin": koin_nama, "harga_beli": pos_live["buy_price"],
                                                 "harga_jual": harga_skrg, "pnl": pnl,
-                                                "alasan": "AI Signal" if keputusan == "SELL" else "Trailing Stop"
+                                                "alasan": alasan_jual
                                             })
                                             
                                             del bot_state["live_positions"][koin_nama]
                                             bot_state["trade_history"] = database.ambil_riwayat()
                                             database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
-                                            bot_state["last_action"] = f"✅ LIVE SELL SUKSES: {koin_nama}"
+                                            bot_state["last_action"] = f"✅ LIVE SELL SUKSES | {alasan_jual}"
                                     else:
-                                        bot_state["last_action"] = f"⚖️ HOLD (Live) | TS: Rp {batas_jual_live:,.0f}"
+                                        bot_state["last_action"] = f"⚖️ HOLD (Live) | Net Profit: {persentase_profit_bersih:.2f}% | TS: Rp {batas_jual_live:,.0f}"
                                         
                                 elif keputusan == "BUY" and saldo_idr_asli > 15000: 
                                     jumlah_beli_idr = saldo_idr_asli * 0.99 
