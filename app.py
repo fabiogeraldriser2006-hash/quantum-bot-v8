@@ -3,7 +3,7 @@
 FILE: app.py
 DESKRIPSI: Dashboard Streamlit Utama (Full Features).
 Menampilkan Candlestick, Kontrol Bot, Portofolio, Dasbor Statistik, Dompet Live,
-Sistem Keamanan Login, dan Optimalisasi Fragment (Anti-Kedip).
+Sistem Keamanan Login, dan Optimalisasi Fragment (Anti-Kedip & Anti-Lag).
 ================================================================================
 """
 import streamlit as st
@@ -192,8 +192,8 @@ st.markdown("---")
 
 placeholder_utama = st.empty()
 
-# <--- PERBAIKAN: Menambahkan st.fragment agar hanya area ini yang refresh --->
-@st.fragment
+# <--- PERBAIKAN FINAL: Menambahkan run_every=3 agar area ini me-refresh dirinya sendiri tanpa melagkan Sidebar --->
+@st.fragment(run_every=3)
 def render_layar_utama():
     with placeholder_utama.container():
         koin_pilihan = execution_bot.bot_state["selected_coin"]
@@ -308,11 +308,6 @@ def render_layar_utama():
             )
         else:
             st.info("Buku catatan masih kosong. Bot belum menyelesaikan transaksi jual apa pun sejak dihidupkan.")
-
-    # <--- PERBAIKAN: Logika Refresh dipindah ke dalam Fragment --->
-    if execution_bot.BOT_IS_RUNNING:
-        time.sleep(3) 
-        st.rerun()
 
 # Memanggil fungsi render yang sudah di-fragmentasi
 render_layar_utama()
