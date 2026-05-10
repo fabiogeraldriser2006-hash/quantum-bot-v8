@@ -1,14 +1,13 @@
 """
 ================================================================================
 FILE: anime_assistant.py
-DESKRIPSI: Modul Asisten Anime Full Body yang membaca gambar langsung dari folder
-dengan interaksi hover CSS yang aman dari SyntaxError.
+DESKRIPSI: Modul Asisten Anime menggunakan gambar PNG Transparan (Tanpa Latar)
+dengan efek interaktif (Melayang & Cahaya Hover).
 ================================================================================
 """
 import streamlit as st
 import streamlit.components.v1 as components
 import base64
-import os
 
 def get_base64_of_bin_file(bin_file):
     """Membaca file gambar lokal dan mengubahnya menjadi format Base64"""
@@ -20,32 +19,37 @@ def get_base64_of_bin_file(bin_file):
         return None
 
 def tampilkan_asisten(bot_state):
-    """
-    Fungsi ini menampilkan karakter 'Gadis Anime' (sesuai referensi user)
-    secara interaktif di Sidebar.
-    """
+    """Menampilkan karakter Gadis Anime transparan yang interaktif."""
+    
     st.markdown("---")
     st.caption("🌸 **Gadis Anime (Interactive Mode)**")
 
-    # 1. Membaca gambar karakter dari folder project
-    # Ganti "karakter.jpg" dengan nama file gambar anime Anda
+    # KUNCI UTAMA: Kita memanggil file PNG yang sudah dihapus background-nya
     nama_file_gambar = "karakter.png" 
     b64_image = get_base64_of_bin_file(nama_file_gambar)
 
     if b64_image:
-        img_src = f"data:image/jpeg;base64,{b64_image}"
+        # Format diubah menjadi image/png
+        img_src = f"data:image/png;base64,{b64_image}"
     else:
-        # Fallback jika gambar tidak ditemukan di folder
-        img_src = "https://via.placeholder.com/150?text=Gambar+Tidak+Ditemukan"
+        img_src = "https://via.placeholder.com/150?text=PNG+Tidak+Ditemukan"
         st.warning(f"⚠️ File '{nama_file_gambar}' tidak ditemukan di folder!")
 
-    # 2. Kode HTML dan CSS (Semua tanda kurung kurawal sudah digandakan {{ }} agar aman)
+    # Kode CSS yang dioptimalkan untuk PNG transparan
     html_animasi = f"""
     <!DOCTYPE html>
     <html>
     <head>
     <style>
-        body {{ margin: 0; display: flex; justify-content: center; align-items: flex-end; height: 350px; overflow: hidden; background-color: transparent; }}
+        body {{ 
+            margin: 0; 
+            display: flex; 
+            justify-content: center; 
+            align-items: flex-end; 
+            height: 350px; 
+            overflow: hidden; 
+            background-color: transparent; /* Latar belakang iframe tembus pandang */
+        }}
         
         .character-container {{
             display: flex;
@@ -59,7 +63,7 @@ def tampilkan_asisten(bot_state):
 
         @keyframes float {{
             0% {{ transform: translateY(0px); }}
-            50% {{ transform: translateY(-10px); }}
+            50% {{ transform: translateY(-12px); }}
             100% {{ transform: translateY(0px); }}
         }}
 
@@ -68,15 +72,17 @@ def tampilkan_asisten(bot_state):
             height: 330px;
             width: auto;
             object-fit: contain;
-            transition: filter 0.3s ease;
+            /* drop-shadow pada filter akan mengikuti bentuk tubuh PNG, BUKAN bentuk kotak gambar */
+            transition: filter 0.3s ease, transform 0.3s ease;
         }}
         
         .character-container:hover {{
-            transform: scale(1.03) translateY(-10px);
+            transform: scale(1.05) translateY(-5px);
         }}
 
+        /* Efek glow yang mengikuti siluet tubuh karakter */
         .character-container:hover .assistant-image {{
-            filter: drop-shadow(0 0 10px rgba(255, 138, 128, 0.7));
+            filter: drop-shadow(0px 0px 12px rgba(255, 105, 180, 0.8));
         }}
     </style>
     </head>
@@ -88,10 +94,9 @@ def tampilkan_asisten(bot_state):
     </html>
     """
     
-    # Render komponen HTML
     components.html(html_animasi, height=350)
     
-    # 3. Logika teks responsif berdasarkan PnL
+    # Logika teks responsif
     total_pnl = sum(trade.get("pnl", 0) for trade in bot_state.get("trade_history", []))
     
     if total_pnl < 0:
