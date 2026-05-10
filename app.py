@@ -2,7 +2,7 @@
 ================================================================================
 FILE: app.py
 DESKRIPSI: Dashboard Streamlit Utama (Full Features).
-Menampilkan Candlestick, Kontrol Bot, Portofolio, dan Dasbor Statistik.
+Menampilkan Candlestick, Kontrol Bot, Portofolio, Dasbor Statistik, dan Dompet Live.
 ================================================================================
 """
 import streamlit as st
@@ -110,10 +110,29 @@ with st.sidebar:
     else:
         st.error("🔴 Bot Status: BERHENTI")
 
+    st.markdown("---")
+
     # =================================================================
-    # FITUR BARU: ASISTEN ANIME DI SIDEBAR BAWAH
+    # FITUR BARU: 4. DOMPET INDODAX (DI SIDEBAR)
     # =================================================================
-    anime_assistant.tampilkan_asisten(execution_bot.bot_state) # <--- TAMBAHAN: Memanggil asisten anime
+    if not mode_simulasi:
+        with st.expander("💰 Lihat Dompet Indodax"):
+            if st.button("🔄 Tarik Data Saldo", use_container_width=True):
+                with st.spinner("Menghubungi Indodax..."):
+                    aset_user = execution_bot.ambil_seluruh_aset()
+                    if aset_user:
+                        df_aset = pd.DataFrame(aset_user)
+                        st.dataframe(df_aset, hide_index=True, use_container_width=True)
+                    else:
+                        st.info("Dompet kosong atau API Key belum valid.")
+    else:
+        with st.expander("💰 Lihat Dompet Indodax"):
+            st.info("Matikan Mode Simulasi untuk melihat saldo Indodax asli.")
+
+    # =================================================================
+    # ASISTEN ANIME DI SIDEBAR BAWAH
+    # =================================================================
+    anime_assistant.tampilkan_asisten(execution_bot.bot_state)
 
 # ==============================================================================
 # LAYAR UTAMA (GRAFIK, LOG, & METRIK STATISTIK)
@@ -184,36 +203,38 @@ def render_layar_utama():
             
         with col_pos:
             st.subheader("💼 Portofolio Terbuka")
-            if execution_bot.bot_state["positions"]:
-                posisi = execution_bot.bot_state["positions"]
-                df_posisi = pd.DataFrame.from_dict(posisi, orient='index')
+            # <--- PENYEMPURNAAN: Otomatis memilih posisi Simulasi atau Live berdasarkan mode --->
+            posisi_aktif = execution_bot.bot_state["positions"] if execution_bot.bot_state["mode_simulasi"] else execution_bot.bot_state["live_positions"]
+            
+            if posisi_aktif:
+                df_posisi = pd.DataFrame.from_dict(posisi_aktif, orient='index')
                 df_posisi = df_posisi.rename(columns={
                     "amount": "Koin",
                     "buy_price": "Harga Beli",
                     "high_price": "Titik Tertinggi (TS)"
                 })
-                kolom_tampil = ["Koin", "Harga Beli", "Titik Tertinggi (TS)"]
+                # Beberapa posisi live mungkin tidak punya kolom "amount" di dalam dictionary, ini untuk mencegah error
+                if "Koin" in df_posisi.columns:
+                    kolom_tampil = ["Koin", "Harga Beli", "Titik Tertinggi (TS)"]
+                else:
+                    kolom_tampil = ["Harga Beli", "Titik Tertinggi (TS)"]
+                
                 st.dataframe(df_posisi[kolom_tampil].style.format("{:,.0f}", subset=["Harga Beli", "Titik Tertinggi (TS)"]))
             else:
                 st.write("Belum ada posisi terbuka.")
 
         st.markdown("---")
         
-        # =================================================================
-        # FITUR BARU: 4. STATISTIK KINERJA BOT
-        # =================================================================
+        # 4. STATISTIK KINERJA BOT
         st.subheader("📊 Papan Skor Kinerja (Riwayat Perdagangan)")
         
-        # Mengambil riwayat dari bot_state (dengan default list kosong agar tidak error)
         riwayat_trade = execution_bot.bot_state.get("trade_history", [])
         
-        # Perhitungan Matematika Papan Skor
         total_trade = len(riwayat_trade)
         transaksi_profit = sum(1 for trade in riwayat_trade if trade.get("pnl", 0) > 0)
         win_rate = (transaksi_profit / total_trade * 100) if total_trade > 0 else 0.0
         total_pnl = sum(trade.get("pnl", 0) for trade in riwayat_trade)
         
-        # Menampilkan metrik dalam 3 kolom
         col_stat1, col_stat2, col_stat3 = st.columns(3)
         with col_stat1:
             st.metric("Total Eksekusi Jual", f"{total_trade} Transaksi")
@@ -222,14 +243,11 @@ def render_layar_utama():
         with col_stat3:
             st.metric("Akumulasi Profit / Loss", f"Rp {total_pnl:,.0f}")
             
-        # Menampilkan Tabel Riwayat Jika Ada
         if total_trade > 0:
             df_history = pd.DataFrame(riwayat_trade)
-            # Menyusun urutan kolom agar rapi
             df_history = df_history[["waktu", "koin", "harga_beli", "harga_jual", "pnl", "alasan"]]
             df_history.columns = ["Waktu", "Aset", "Beli (Rp)", "Jual (Rp)", "Profit/Loss (Rp)", "Keterangan Keluar"]
             
-            # Format tampilan angka di tabel
             st.dataframe(
                 df_history.style.format({
                     "Beli (Rp)": "{:,.0f}", 
