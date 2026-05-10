@@ -1,7 +1,7 @@
 """
 ================================================================================
 FILE: execution_bot.py
-VERSI: Ultimate Integrated (Multi-Timeframe + Scoreboard + SQLite Database + Net Take Profit + Portfolio)
+VERSI: Ultimate Integrated (Portfolio + Trade History Sync)
 DESKRIPSI: Mesin Eksekusi Utama. Menarik data Makro & Mikro, menjalankan AI, 
 serta mencatat riwayat transaksi secara PERMANEN ke SQLite.
 =========================================================
@@ -17,31 +17,30 @@ import requests
 import config
 import data_engine
 import quant_brain
-import database # <--- MENGHUBUNGKAN KE MODUL DATABASE
+import database
 
 # ==============================================================================
-# INITIAL LOAD: Memuat data dari Database saat file pertama kali dijalankan
+# INITIAL LOAD: Memuat data dari Database
 # ==============================================================================
-# Memastikan tabel database siap dan memuat data terakhir
 database.inisialisasi_db()
 data_tersimpan = database.muat_status_bot()
 
 bot_state = {
     "selected_coin": "Bitcoin (BTC)",
     "last_action": "Sistem dimuat dari database permanen...",
-    "scan_speed": 60,                 # Kecepatan refresh sistem (detik)
-    "atr_multiplier": 2.0,            # Jarak pengaman Trailing Stop
-    "take_profit_pct": 1.0,           # Target Net Profit 1.0%
-    "mode_simulasi": True,            # Mode Uang Kertas (True) atau Uang Asli (False)
-    "cash": data_tersimpan["cash"],   # Saldo dimuat dari DB
-    "positions": data_tersimpan["positions"],     # Posisi simulasi dari DB
-    "live_positions": data_tersimpan["live_positions"], # Posisi live dari DB
-    "trade_history": database.ambil_riwayat(),    # Riwayat Papan Skor dari DB
+    "scan_speed": 60,                 
+    "atr_multiplier": 2.0,            
+    "take_profit_pct": 1.0,           
+    "mode_simulasi": True,            
+    "cash": data_tersimpan["cash"],   
+    "positions": data_tersimpan["positions"],     
+    "live_positions": data_tersimpan["live_positions"], 
+    "trade_history": database.ambil_riwayat(),    
     "api_key_indodax": "",
     "secret_key_indodax": ""
 }
 
-BOT_IS_RUNNING = False # Sakelar utama mesin
+BOT_IS_RUNNING = False 
 
 # ==============================================================================
 # FUNGSI KONEKSI PRIVATE API (EKSEKUSI BELI/JUAL ASLI)
@@ -73,15 +72,30 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
         'Key': api_key,
         'Sign': signature,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0'
     }
     
     response = requests.post(url, headers=headers, data=data, timeout=10)
     return response.json()
 
 # ==============================================================================
-# TAMBAHAN BARU: FUNGSI UNTUK MENARIK SELURUH ASET DOMPET
+# TAMBAHAN BARU: FUNGSI CEK RIWAYAT HARGA ASLI & PORTOFOLIO
 # ==============================================================================
+def cari_harga_beli_asli(pair):
+    """Membaca riwayat order Indodax untuk mencari harga beli terakhir dari aset."""
+    try:
+        # Panggil endpoint tradeHistory untuk pair spesifik
+        res = panggil_api_private_indodax('tradeHistory', {'pair': pair})
+        if res.get('success') == 1:
+            trades = res['return']['trades']
+            # Loop dari transaksi terbaru ke terlama
+            for trade in trades:
+                if trade['type'] == 'buy':
+                    return float(trade['price'])
+    except Exception:
+        pass
+    return None # Kembalikan None jika tidak ada riwayat (misal: koin hasil deposit)
+
 def ambil_seluruh_aset():
     """Menarik semua saldo koin yang kita miliki di Indodax untuk ditampilkan di UI"""
     try:
@@ -95,7 +109,6 @@ def ambil_seluruh_aset():
                 try:
                     jumlah_float = float(jumlah)
                     tertahan_float = float(frozen.get(koin, 0))
-                    # Memfilter koin yang nominalnya berarti dan mengabaikan idr karena sudah ada indikator khusus
                     if (jumlah_float > 0.00001 or tertahan_float > 0.00001) and koin != 'idr':
                         daftar_aset.append({
                             "Aset": koin.upper(),
@@ -105,7 +118,7 @@ def ambil_seluruh_aset():
                 except:
                     pass
             return daftar_aset
-    except Exception as e:
+    except Exception:
         return []
     return []
 
@@ -133,7 +146,6 @@ def rutinitas_pemindaian():
             if data_live and pair_indodax in data_live:
                 harga_skrg = float(data_live[pair_indodax]['last'])
                 
-                # Tarik 2 Grafik Sekaligus (Multi-Timeframe)
                 df_macro, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "4h", 50, data_live[pair_indodax])
                 df_micro, _ = data_engine.tarik_grafik_klines_aman(data_koin['tv'], "15m", 50, data_live[pair_indodax])
                 
@@ -145,10 +157,9 @@ def rutinitas_pemindaian():
                     try: sentimen = data_engine.tarik_sentimen_global()
                     except: sentimen = 50 
                     
-                    # Panggil AI Gemini (Logika Multi-TF)
                     narasi, keputusan = quant_brain.prediksi_ai_market(df_macro, df_micro, koin_nama, harga_skrg, sentimen)
                     
-                    # --- MODE SIMULASI (PAPER TRADING) ---
+                    # --- MODE SIMULASI ---
                     if bot_state["mode_simulasi"]:
                         if koin_nama in bot_state["positions"]:
                             pos = bot_state["positions"][koin_nama]
@@ -157,7 +168,6 @@ def rutinitas_pemindaian():
                                 
                             batas_jual = pos["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                             
-                            # Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu)
                             harga_jual_bersih = harga_skrg * 0.997
                             persentase_profit_bersih = ((harga_jual_bersih - pos["buy_price"]) / pos["buy_price"]) * 100
                             kondisi_take_profit = persentase_profit_bersih >= bot_state["take_profit_pct"]
@@ -174,7 +184,6 @@ def rutinitas_pemindaian():
                                 else:
                                     alasan_jual = "Trailing Stop"
                                 
-                                # 1. Simpan ke Riwayat Database (Scoreboard)
                                 trade_log = {
                                     "waktu": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "koin": koin_nama, "harga_beli": pos["buy_price"],
@@ -183,12 +192,10 @@ def rutinitas_pemindaian():
                                 }
                                 database.simpan_trade(trade_log)
                                 
-                                # 2. Update Memori State
                                 bot_state["cash"] += hasil_jual
                                 bot_state["trade_history"] = database.ambil_riwayat()
                                 del bot_state["positions"][koin_nama] 
                                 
-                                # 3. Sinkronkan Status Aktif ke Database
                                 database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
                                 bot_state["last_action"] = f"✅ SIMULASI JUAL {koin_nama} | {alasan_jual} | PnL: Rp {pnl_transaksi:,.0f}"
                             else:
@@ -202,11 +209,10 @@ def rutinitas_pemindaian():
                             }
                             bot_state["cash"] = 0 
                             
-                            # Sinkronkan Status Aktif ke Database
                             database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
                             bot_state["last_action"] = f"🚀 SIMULASI BELI {koin_nama} di Rp {harga_skrg:,.0f}"
 
-                    # --- MODE LIVE TRADING (UANG ASLI) ---
+                    # --- MODE LIVE TRADING ---
                     else:
                         try:
                             info_akun = panggil_api_private_indodax('getInfo')
@@ -217,17 +223,29 @@ def rutinitas_pemindaian():
                                 
                                 if saldo_koin_asli > 0.00001: 
                                     if koin_nama not in bot_state["live_positions"]:
-                                        bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg, "buy_price": harga_skrg}
-                                        # <--- TAMBAHAN: Menyimpan dan Melaporkan Adopsi Koin Manual --->
+                                        # <--- LOGIKA PENCARIAN HARGA ASLI --->
+                                        harga_beli_riil = cari_harga_beli_asli(pair_indodax)
+                                        
+                                        if harga_beli_riil:
+                                            harga_patokan = harga_beli_riil
+                                            pesan_adopsi = f"📥 Adopsi {koin_nama} | Sync Harga Asli: Rp {harga_patokan:,.0f}"
+                                        else:
+                                            harga_patokan = harga_skrg
+                                            pesan_adopsi = f"📥 Adopsi {koin_nama} | Riwayat nol, pakai Harga Estimasi: Rp {harga_patokan:,.0f}"
+
+                                        bot_state["live_positions"][koin_nama] = {
+                                            "high_price": harga_skrg, 
+                                            "buy_price": harga_patokan 
+                                        }
+                                        
                                         database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
-                                        bot_state["last_action"] = f"📥 Mengadopsi aset manual {koin_nama} dari wallet."
-                                        time.sleep(2) # Beri jeda sebentar agar notifikasi terbaca
+                                        bot_state["last_action"] = pesan_adopsi
+                                        time.sleep(2) 
                                         
                                     pos_live = bot_state["live_positions"][koin_nama]
                                     if harga_skrg > pos_live["high_price"]: pos_live["high_price"] = harga_skrg
                                     batas_jual_live = pos_live["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
                                     
-                                    # Kalkulasi Net Profit (Harga Jual dipotong fee 0.3% dulu) (Live)
                                     harga_jual_bersih = harga_skrg * 0.997
                                     persentase_profit_bersih = ((harga_jual_bersih - pos_live["buy_price"]) / pos_live["buy_price"]) * 100
                                     kondisi_take_profit = persentase_profit_bersih >= bot_state["take_profit_pct"]
@@ -239,7 +257,6 @@ def rutinitas_pemindaian():
                                         }
                                         res_jual = panggil_api_private_indodax('trade', parameter_jual)
                                         if res_jual.get('success') == 1:
-                                            # Hitung PnL dan Simpan ke DB
                                             modal_awal = saldo_koin_asli * pos_live["buy_price"]
                                             hasil_jual = saldo_koin_asli * harga_jual_bersih
                                             pnl = hasil_jual - modal_awal
@@ -290,7 +307,7 @@ def rutinitas_pemindaian():
             time.sleep(15)
 
 # ==============================================================================
-# KONTROL THREAD (MENYALAKAN/MEMATIKAN BOT DARI UI)
+# KONTROL THREAD
 # ==============================================================================
 def mulai_bot_latar_belakang():
     global BOT_IS_RUNNING
