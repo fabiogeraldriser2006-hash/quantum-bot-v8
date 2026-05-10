@@ -2,7 +2,8 @@
 ================================================================================
 FILE: app.py
 DESKRIPSI: Dashboard Streamlit Utama (Full Features).
-Menampilkan Candlestick, Kontrol Bot, Portofolio, Dasbor Statistik, dan Dompet Live.
+Menampilkan Candlestick, Kontrol Bot, Portofolio, Dasbor Statistik, Dompet Live,
+dan Sistem Keamanan Login (Anti-Intrusion).
 ================================================================================
 """
 import streamlit as st
@@ -23,6 +24,45 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==============================================================================
+# 🔒 SISTEM KEAMANAN LOGIN (SUNTIKAN FITUR BARU)
+# ==============================================================================
+def check_password():
+    """Mengembalikan nilai True jika user memasukkan password yang benar."""
+    
+    def password_entered():
+        # Mengambil password dari secrets atau default 'eagle123'
+        correct_password = st.secrets.get("APP_PASSWORD", "eagle123")
+        
+        if st.session_state["password_input"] == correct_password:
+            st.session_state["password_correct"] = True
+            del st.session_state["password_input"] # hapus password dari cache
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # Tampilan Awal Login
+        st.title("🔒 Area Terbatas: Eagle Focus OS")
+        st.text_input("🔑 Masukkan PIN/Password untuk mengakses Dasbor:", type="password", on_change=password_entered, key="password_input")
+        st.caption("💡 *Hint: Default password adalah **eagle123***")
+        return False
+    
+    elif not st.session_state["password_correct"]:
+        # Tampilan Jika Password Salah
+        st.title("🔒 Area Terbatas: Eagle Focus OS")
+        st.text_input("🔑 Masukkan PIN/Password untuk mengakses Dasbor:", type="password", on_change=password_entered, key="password_input")
+        st.error("❌ Password salah. Akses ditolak.")
+        return False
+    
+    return True
+
+# JIKA BELUM LOGIN, HENTIKAN SELURUH EKSEKUSI KODE DI BAWAH INI
+if not check_password():
+    st.stop()
+
+# ==============================================================================
+# LANJUTAN KODE ASLI (TIDAK ADA YANG DIUBAH)
+# ==============================================================================
 if "bot_started" not in st.session_state:
     st.session_state.bot_started = False
 
@@ -32,6 +72,12 @@ if "bot_started" not in st.session_state:
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/000000/artificial-intelligence.png", width=60)
     st.title("⚙️ Panel Kendali")
+    
+    # Tombol Logout (Fitur Tambahan Keamanan)
+    if st.button("🚪 Logout / Kunci Layar"):
+        del st.session_state["password_correct"]
+        st.rerun()
+
     st.markdown("---")
     
     # Target Koin Tunggal
@@ -113,7 +159,7 @@ with st.sidebar:
     st.markdown("---")
 
     # =================================================================
-    # FITUR BARU: 4. DOMPET INDODAX (DI SIDEBAR)
+    # FITUR DOMPET INDODAX (TETAP ADA)
     # =================================================================
     if not mode_simulasi:
         with st.expander("💰 Lihat Dompet Indodax"):
@@ -130,7 +176,7 @@ with st.sidebar:
             st.info("Matikan Mode Simulasi untuk melihat saldo Indodax asli.")
 
     # =================================================================
-    # ASISTEN ANIME DI SIDEBAR BAWAH
+    # ASISTEN ANIME (TETAP ADA)
     # =================================================================
     anime_assistant.tampilkan_asisten(execution_bot.bot_state)
 
@@ -203,7 +249,6 @@ def render_layar_utama():
             
         with col_pos:
             st.subheader("💼 Portofolio Terbuka")
-            # <--- PENYEMPURNAAN: Otomatis memilih posisi Simulasi atau Live berdasarkan mode --->
             posisi_aktif = execution_bot.bot_state["positions"] if execution_bot.bot_state["mode_simulasi"] else execution_bot.bot_state["live_positions"]
             
             if posisi_aktif:
@@ -213,7 +258,6 @@ def render_layar_utama():
                     "buy_price": "Harga Beli",
                     "high_price": "Titik Tertinggi (TS)"
                 })
-                # Beberapa posisi live mungkin tidak punya kolom "amount" di dalam dictionary, ini untuk mencegah error
                 if "Koin" in df_posisi.columns:
                     kolom_tampil = ["Koin", "Harga Beli", "Titik Tertinggi (TS)"]
                 else:
@@ -266,5 +310,5 @@ render_layar_utama()
 # LOGIKA PENYEGARAN OTOMATIS (AUTO-REFRESH)
 # ==============================================================================
 if execution_bot.BOT_IS_RUNNING:
-    time.sleep(3) # Menyegarkan UI setiap 3 detik
+    time.sleep(3) 
     st.rerun()
