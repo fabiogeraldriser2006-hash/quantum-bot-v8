@@ -3,13 +3,14 @@
 FILE: app.py
 DESKRIPSI: Dashboard Streamlit Utama (Full Features).
 Menampilkan Candlestick, Kontrol Bot, Portofolio, Dasbor Statistik, Dompet Live,
-Sistem Keamanan Login, dan Optimalisasi Fragment (Anti-Kedip & Anti-Lag).
+Sistem Keamanan Login, dan Selektor Multi-Brain AI.
 ================================================================================
 """
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import time
+import os
 from datetime import datetime
 import config
 import execution_bot
@@ -25,34 +26,26 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 🔒 SISTEM KEAMANAN LOGIN (SUNTIKAN FITUR BARU)
+# 🔒 SISTEM KEAMANAN LOGIN
 # ==============================================================================
 def check_password():
-    """Mengembalikan nilai True jika user memasukkan password yang benar."""
-    
     def password_entered():
-        # Mengambil password dari secrets atau default 'eagle123'
         correct_password = st.secrets.get("APP_PASSWORD", "eagle123")
-        
-        # PERBAIKAN: Gunakan .get() agar aman dari KeyError meskipun state kosong
         input_user = st.session_state.get("password_input", "")
         
         if input_user == correct_password:
             st.session_state["password_correct"] = True
-            # Hapus password dari cache dengan perlindungan tambahan
             if "password_input" in st.session_state:
                 del st.session_state["password_input"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Tampilan Awal Login
         st.title("🔒 Area Terbatas: Eagle Focus OS")
         st.text_input("🔑 Masukkan PIN/Password untuk mengakses Dasbor:", type="password", on_change=password_entered, key="password_input")
         return False
     
     elif not st.session_state["password_correct"]:
-        # Tampilan Jika Password Salah
         st.title("🔒 Area Terbatas: Eagle Focus OS")
         st.text_input("🔑 Masukkan PIN/Password untuk mengakses Dasbor:", type="password", on_change=password_entered, key="password_input")
         st.error("❌ Password salah. Akses ditolak.")
@@ -60,12 +53,11 @@ def check_password():
     
     return True
 
-# JIKA BELUM LOGIN, HENTIKAN SELURUH EKSEKUSI KODE DI BAWAH INI
 if not check_password():
     st.stop()
 
 # ==============================================================================
-# LANJUTAN KODE ASLI (TIDAK ADA YANG DIUBAH)
+# INISIALISASI VARIABEL
 # ==============================================================================
 if "bot_started" not in st.session_state:
     st.session_state.bot_started = False
@@ -77,7 +69,6 @@ with st.sidebar:
     st.image("https://img.icons8.com/color/96/000000/artificial-intelligence.png", width=60)
     st.title("⚙️ Panel Kendali")
     
-    # Tombol Logout (Fitur Tambahan Keamanan)
     if st.button("🚪 Logout / Kunci Layar"):
         del st.session_state["password_correct"]
         st.rerun()
@@ -98,17 +89,37 @@ with st.sidebar:
     
     st.markdown("---")
     
+    # <--- TAMBAHAN BARU: SELEKTOR OTAK AI --->
+    st.subheader("🧠 Pilih Otak AI")
+    daftar_ai = ["Gemini", "OpenAI (ChatGPT)", "Anthropic (Claude)", "Groq (Llama-3)"]
+    ai_saat_ini = execution_bot.bot_state.get("selected_ai", "Gemini")
+    
+    pilihan_ai = st.selectbox("Pilih mesin analitik:", daftar_ai, index=daftar_ai.index(ai_saat_ini))
+    execution_bot.bot_state["selected_ai"] = pilihan_ai
+    
+    # Cek apakah API Key untuk AI yang dipilih sudah terpasang
+    kunci_rahasia = ""
+    if pilihan_ai == "Gemini":
+        kunci_rahasia = os.environ.get("GEMINI_API_KEY", "")
+    elif pilihan_ai == "OpenAI (ChatGPT)":
+        kunci_rahasia = os.environ.get("OPENAI_API_KEY", "")
+    elif pilihan_ai == "Anthropic (Claude)":
+        kunci_rahasia = os.environ.get("ANTHROPIC_API_KEY", "")
+    elif pilihan_ai == "Groq (Llama-3)":
+        kunci_rahasia = os.environ.get("GROQ_API_KEY", "")
+        
+    if not kunci_rahasia:
+        st.warning(f"⚠️ API Key untuk {pilihan_ai} belum ditemukan di sistem (Secrets).")
+    
+    st.markdown("---")
+    
     # Mode Trading & Kredensial Indodax
     st.subheader("🏦 Mode Trading")
-    
-    # Toggle Mode Simulasi
     mode_simulasi = st.toggle("Mode Simulasi (Paper Trading)", value=execution_bot.bot_state["mode_simulasi"])
     execution_bot.bot_state["mode_simulasi"] = mode_simulasi
     
     if not mode_simulasi:
         st.warning("⚠️ MODE LIVE AKTIF. Bot menggunakan saldo asli Indodax.")
-        
-        # Coba baca dari Streamlit Secrets terlebih dahulu
         rahasia_api = ""
         rahasia_secret = ""
         try:
@@ -162,9 +173,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # =================================================================
-    # FITUR DOMPET INDODAX
-    # =================================================================
+    # Dompet Indodax
     if not mode_simulasi:
         with st.expander("💰 Lihat Dompet Indodax"):
             if st.button("🔄 Tarik Data Saldo", use_container_width=True):
@@ -179,9 +188,7 @@ with st.sidebar:
         with st.expander("💰 Lihat Dompet Indodax"):
             st.info("Matikan Mode Simulasi untuk melihat saldo Indodax asli.")
 
-    # =================================================================
-    # ASISTEN ANIME
-    # =================================================================
+    # Asisten Anime
     anime_assistant.tampilkan_asisten(execution_bot.bot_state)
 
 # ==============================================================================
@@ -192,7 +199,6 @@ st.markdown("---")
 
 placeholder_utama = st.empty()
 
-# <--- PERBAIKAN FINAL: Menambahkan run_every=3 agar area ini me-refresh dirinya sendiri tanpa melagkan Sidebar --->
 @st.fragment(run_every=3)
 def render_layar_utama():
     with placeholder_utama.container():
@@ -251,7 +257,7 @@ def render_layar_utama():
         with col_log:
             st.subheader("📝 Catatan Sistem (Live)")
             st.info(execution_bot.bot_state["last_action"])
-            st.caption("Catatan: AI Gemini menganalisis data Makro (4H) dan Mikro (15M) sekaligus. Trailing Stop bekerja secara real-time di latar belakang.")
+            st.caption("Catatan: AI menganalisis data Makro (4H) dan Mikro (15M) sekaligus. Trailing Stop bekerja secara real-time di latar belakang.")
             
         with col_pos:
             st.subheader("💼 Portofolio Terbuka")
