@@ -1,7 +1,7 @@
 """
 ================================================================================
 FILE: execution_bot.py
-VERSI: Ultimate Integrated (Portfolio + Trade History Sync)
+VERSI: Ultimate Integrated (Portfolio + Trade History Sync + Multi-Brain)
 DESKRIPSI: Mesin Eksekusi Utama. Menarik data Makro & Mikro, menjalankan AI, 
 serta mencatat riwayat transaksi secara PERMANEN ke SQLite.
 =========================================================
@@ -27,6 +27,7 @@ data_tersimpan = database.muat_status_bot()
 
 bot_state = {
     "selected_coin": "Bitcoin (BTC)",
+    "selected_ai": "Gemini", # <--- TAMBAHAN: Menyimpan pilihan AI aktif
     "last_action": "Sistem dimuat dari database permanen...",
     "scan_speed": 60,                 
     "atr_multiplier": 2.0,            
@@ -79,22 +80,20 @@ def panggil_api_private_indodax(method, parameter_tambahan=None):
     return response.json()
 
 # ==============================================================================
-# TAMBAHAN BARU: FUNGSI CEK RIWAYAT HARGA ASLI & PORTOFOLIO
+# FUNGSI CEK RIWAYAT HARGA ASLI & PORTOFOLIO
 # ==============================================================================
 def cari_harga_beli_asli(pair):
     """Membaca riwayat order Indodax untuk mencari harga beli terakhir dari aset."""
     try:
-        # Panggil endpoint tradeHistory untuk pair spesifik
         res = panggil_api_private_indodax('tradeHistory', {'pair': pair})
         if res.get('success') == 1:
             trades = res['return']['trades']
-            # Loop dari transaksi terbaru ke terlama
             for trade in trades:
                 if trade['type'] == 'buy':
                     return float(trade['price'])
     except Exception:
         pass
-    return None # Kembalikan None jika tidak ada riwayat (misal: koin hasil deposit)
+    return None 
 
 def ambil_seluruh_aset():
     """Menarik semua saldo koin yang kita miliki di Indodax untuk ditampilkan di UI"""
@@ -137,7 +136,10 @@ def rutinitas_pemindaian():
                 bot_state["last_action"] = f"⚠️ Konfigurasi {koin_nama} tidak ditemukan."
                 time.sleep(10); continue
 
-            bot_state["last_action"] = f"🔍 Memantau {koin_nama}..."
+            # Membaca pilihan AI yang aktif dari bot_state
+            ai_aktif = bot_state.get("selected_ai", "Gemini")
+            bot_state["last_action"] = f"🔍 Memantau {koin_nama} menggunakan {ai_aktif}..."
+            
             pair_indodax = data_koin['ticker'] 
             simbol_koin_kecil = pair_indodax.split('_')[0] 
             
@@ -157,7 +159,10 @@ def rutinitas_pemindaian():
                     try: sentimen = data_engine.tarik_sentimen_global()
                     except: sentimen = 50 
                     
-                    narasi, keputusan = quant_brain.prediksi_ai_market(df_macro, df_micro, koin_nama, harga_skrg, sentimen)
+                    # <--- PERUBAHAN PENTING: Mengirim parameter ai_aktif ke quant_brain --->
+                    narasi, keputusan = quant_brain.prediksi_ai_market(
+                        df_macro, df_micro, koin_nama, harga_skrg, sentimen, ai_choice=ai_aktif
+                    )
                     
                     # --- MODE SIMULASI ---
                     if bot_state["mode_simulasi"]:
@@ -223,7 +228,6 @@ def rutinitas_pemindaian():
                                 
                                 if saldo_koin_asli > 0.00001: 
                                     if koin_nama not in bot_state["live_positions"]:
-                                        # <--- LOGIKA PENCARIAN HARGA ASLI --->
                                         harga_beli_riil = cari_harga_beli_asli(pair_indodax)
                                         
                                         if harga_beli_riil:
