@@ -98,7 +98,8 @@ def cari_harga_beli_asli(pair):
 def ambil_seluruh_aset():
     """
     Menarik semua saldo koin yang kita miliki di Indodax.
-    Dilengkapi 'Mode Sinar-X' untuk mengekspos data mentah jika tabel ternyata kosong.
+    PERBAIKAN: Menangani anomali tipe data (String vs Integer) dari server Indodax
+    dan memunculkan saldo Rupiah (IDR) agar tabel tidak kosong jika hanya punya Rupiah.
     """
     try:
         res = panggil_api_private_indodax('getInfo')
@@ -109,24 +110,21 @@ def ambil_seluruh_aset():
             daftar_aset = []
             for koin, jumlah in balances.items():
                 try:
+                    # Memaksa tipe data menjadi angka desimal (Float)
                     jumlah_float = float(jumlah)
                     tertahan_float = float(frozen.get(koin, 0))
                     
-                    if (jumlah_float > 0 or tertahan_float > 0) and koin.lower() != 'idr':
+                    # Kita masukkan ke tabel JIKA lebih dari nol (baik itu Kripto maupun IDR)
+                    if jumlah_float > 0 or tertahan_float > 0:
                         daftar_aset.append({
                             "Aset": koin.upper(),
                             "Tersedia": jumlah_float,
                             "Tertahan (Order)": tertahan_float
                         })
-                except:
+                except Exception as e:
+                    # Mengabaikan error konversi angka
                     pass
             
-            # --- MODE SINAR-X (X-RAY) ---
-            # Jika daftar_aset kosong, kita intip seluruh data mentah dari server
-            if len(daftar_aset) == 0:
-                data_mentah = f"SALDO TERSEDIA: {balances} | SALDO TERTAHAN (FROZEN): {frozen}"
-                return [], data_mentah
-                
             return daftar_aset, None
         else:
             pesan_error = res.get('error', 'Permintaan ditolak tanpa alasan spesifik dari Indodax.')
