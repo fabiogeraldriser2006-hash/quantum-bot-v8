@@ -27,7 +27,7 @@ data_tersimpan = database.muat_status_bot()
 
 bot_state = {
     "selected_coin": "Bitcoin (BTC)",
-    "selected_ai": "Gemini", # <--- TAMBAHAN: Menyimpan pilihan AI aktif
+    "selected_ai": "Gemini", 
     "last_action": "Sistem dimuat dari database permanen...",
     "scan_speed": 60,                 
     "atr_multiplier": 2.0,            
@@ -98,7 +98,7 @@ def cari_harga_beli_asli(pair):
 def ambil_seluruh_aset():
     """
     Menarik semua saldo koin yang kita miliki di Indodax untuk ditampilkan di UI.
-    Telah dilengkapi 'Radar Error' untuk menangkap pesan penolakan dari API Indodax.
+    Telah diperbarui dengan filter absolut (> 0) agar saldo terkecil pun terbaca.
     """
     try:
         res = panggil_api_private_indodax('getInfo')
@@ -111,8 +111,9 @@ def ambil_seluruh_aset():
                 try:
                     jumlah_float = float(jumlah)
                     tertahan_float = float(frozen.get(koin, 0))
-                    # PERBAIKAN: Menurunkan batas toleransi menjadi 0.00000001 (1 Satoshi)
-                    if (jumlah_float > 0.00000001 or tertahan_float > 0.00000001) and koin != 'idr':
+                    
+                    # PERBAIKAN: Menggunakan filter > 0 agar Satoshi terkecil tidak terbuang
+                    if (jumlah_float > 0 or tertahan_float > 0) and koin.lower() != 'idr':
                         daftar_aset.append({
                             "Aset": koin.upper(),
                             "Tersedia": jumlah_float,
@@ -120,15 +121,11 @@ def ambil_seluruh_aset():
                         })
                 except:
                     pass
-            # Mengembalikan daftar aset DAN "None" (yang berarti tidak ada error)
             return daftar_aset, None
         else:
-            # Jika gagal, kembalikan daftar kosong DAN pesan error asli dari Indodax
             pesan_error = res.get('error', 'Permintaan ditolak tanpa alasan spesifik dari Indodax.')
             return [], pesan_error
-            
     except Exception as e:
-        # Menangkap error jaringan atau API kosong
         return [], str(e)
 
 # ==============================================================================
@@ -146,7 +143,6 @@ def rutinitas_pemindaian():
                 bot_state["last_action"] = f"⚠️ Konfigurasi {koin_nama} tidak ditemukan."
                 time.sleep(10); continue
 
-            # Membaca pilihan AI yang aktif dari bot_state
             ai_aktif = bot_state.get("selected_ai", "Gemini")
             bot_state["last_action"] = f"🔍 Memantau {koin_nama} menggunakan {ai_aktif}..."
             
@@ -169,7 +165,6 @@ def rutinitas_pemindaian():
                     try: sentimen = data_engine.tarik_sentimen_global()
                     except: sentimen = 50 
                     
-                    # <--- PERUBAHAN PENTING: Mengirim parameter ai_aktif ke quant_brain --->
                     narasi, keputusan = quant_brain.prediksi_ai_market(
                         df_macro, df_micro, koin_nama, harga_skrg, sentimen, ai_choice=ai_aktif
                     )
@@ -236,7 +231,8 @@ def rutinitas_pemindaian():
                                 saldo_koin_asli = float(info_akun['return']['balance'].get(simbol_koin_kecil, 0))
                                 bot_state['cash'] = saldo_idr_asli
                                 
-                                if saldo_koin_asli > 0.00001: 
+                                # PERBAIKAN: Menggunakan filter > 0 untuk adopsi saldo live
+                                if saldo_koin_asli > 0: 
                                     if koin_nama not in bot_state["live_positions"]:
                                         harga_beli_riil = cari_harga_beli_asli(pair_indodax)
                                         
