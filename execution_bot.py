@@ -108,7 +108,8 @@ def ambil_seluruh_aset():
                 try:
                     jumlah_float = float(jumlah)
                     tertahan_float = float(frozen.get(koin, 0))
-                    if (jumlah_float > 0.00001 or tertahan_float > 0.00001) and koin != 'idr':
+                    # PERBAIKAN: Menurunkan batas toleransi menjadi 0.00000001 (1 Satoshi)
+                    if (jumlah_float > 0.00000001 or tertahan_float > 0.00000001) and koin != 'idr':
                         daftar_aset.append({
                             "Aset": koin.upper(),
                             "Tersedia": jumlah_float,
