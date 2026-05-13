@@ -96,11 +96,6 @@ def cari_harga_beli_asli(pair):
     return None 
 
 def ambil_seluruh_aset():
-    """
-    Menarik semua saldo koin yang kita miliki di Indodax.
-    PERBAIKAN: Menangani anomali tipe data (String vs Integer) dari server Indodax
-    dan memunculkan saldo Rupiah (IDR) agar tabel tidak kosong jika hanya punya Rupiah.
-    """
     try:
         res = panggil_api_private_indodax('getInfo')
         if res.get('success') == 1:
@@ -110,19 +105,16 @@ def ambil_seluruh_aset():
             daftar_aset = []
             for koin, jumlah in balances.items():
                 try:
-                    # Memaksa tipe data menjadi angka desimal (Float)
                     jumlah_float = float(jumlah)
                     tertahan_float = float(frozen.get(koin, 0))
                     
-                    # Kita masukkan ke tabel JIKA lebih dari nol (baik itu Kripto maupun IDR)
                     if jumlah_float > 0 or tertahan_float > 0:
                         daftar_aset.append({
                             "Aset": koin.upper(),
                             "Tersedia": jumlah_float,
                             "Tertahan (Order)": tertahan_float
                         })
-                except Exception as e:
-                    # Mengabaikan error konversi angka
+                except Exception:
                     pass
             
             return daftar_aset, None
@@ -148,7 +140,6 @@ def rutinitas_pemindaian():
                 time.sleep(10); continue
 
             ai_aktif = bot_state.get("selected_ai", "Gemini")
-            bot_state["last_action"] = f"🔍 Memantau {koin_nama} menggunakan {ai_aktif}..."
             
             pair_indodax = data_koin['ticker'] 
             simbol_koin_kecil = pair_indodax.split('_')[0] 
@@ -213,7 +204,7 @@ def rutinitas_pemindaian():
                                 database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
                                 bot_state["last_action"] = f"✅ SIMULASI JUAL {koin_nama} | {alasan_jual} | PnL: Rp {pnl_transaksi:,.0f}"
                             else:
-                                bot_state["last_action"] = f"⚖️ HOLD (Sim) | Net Profit: {persentase_profit_bersih:.2f}% | TS: Rp {batas_jual:,.0f}"
+                                bot_state["last_action"] = f"⚖️ HOLD (Sim) | Profit: {persentase_profit_bersih:.2f}% | Harga: {harga_skrg:,.0f} | TS: {batas_jual:,.0f}"
 
                         elif keputusan == "BUY" and bot_state["cash"] > 100000:
                             koin_didapat = (bot_state["cash"] / harga_skrg) * 0.997
@@ -264,11 +255,16 @@ def rutinitas_pemindaian():
                                     kondisi_take_profit = persentase_profit_bersih >= bot_state["take_profit_pct"]
                                     
                                     if keputusan == "SELL" or harga_skrg <= batas_jual_live or kondisi_take_profit:
+                                        
+                                        # PERBAIKAN KRITIS: Memaksa format 8 desimal untuk menghindari error notasi ilmiah (e.g. 1e-05)
+                                        jumlah_jual_str = f"{saldo_koin_asli:.8f}"
+                                        
                                         parameter_jual = {
                                             'pair': pair_indodax, 'type': 'sell',
-                                            'price': str(int(harga_skrg)), simbol_koin_kecil: str(saldo_koin_asli) 
+                                            'price': str(int(harga_skrg)), simbol_koin_kecil: jumlah_jual_str 
                                         }
                                         res_jual = panggil_api_private_indodax('trade', parameter_jual)
+                                        
                                         if res_jual.get('success') == 1:
                                             modal_awal = saldo_koin_asli * pos_live["buy_price"]
                                             hasil_jual = saldo_koin_asli * harga_jual_bersih
@@ -292,8 +288,15 @@ def rutinitas_pemindaian():
                                             bot_state["trade_history"] = database.ambil_riwayat()
                                             database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
                                             bot_state["last_action"] = f"✅ LIVE SELL SUKSES | {alasan_jual}"
+                                            
+                                        # PERBAIKAN KRITIS: Menangkap pesan penolakan dari API Indodax
+                                        else:
+                                            pesan_error_api = res_jual.get('error', 'Ditolak tanpa alasan oleh server.')
+                                            bot_state["last_action"] = f"❌ GAGAL JUAL: {pesan_error_api} (Profit: {persentase_profit_bersih:.2f}%)"
+                                            
                                     else:
-                                        bot_state["last_action"] = f"⚖️ HOLD (Live) | Net Profit: {persentase_profit_bersih:.2f}% | TS: Rp {batas_jual_live:,.0f}"
+                                        # PERBAIKAN KRITIS: Menampilkan metrik pantauan real-time yang jelas
+                                        bot_state["last_action"] = f"⚖️ Pantau (Live) | Profit: {persentase_profit_bersih:.2f}% | Harga Skrg: Rp {harga_skrg:,.0f} | Batas TS: Rp {batas_jual_live:,.0f}"
                                         
                                 elif keputusan == "BUY" and saldo_idr_asli > 15000: 
                                     jumlah_beli_idr = saldo_idr_asli * 0.99 
@@ -306,6 +309,9 @@ def rutinitas_pemindaian():
                                         bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg, "buy_price": harga_skrg} 
                                         database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
                                         bot_state["last_action"] = f"🚀 LIVE BUY SUKSES: {koin_nama}"
+                                    else:
+                                        pesan_error_api = res_beli.get('error', 'Ditolak tanpa alasan.')
+                                        bot_state["last_action"] = f"❌ GAGAL BELI: {pesan_error_api}"
 
                         except Exception as api_err:
                             bot_state["last_action"] = f"❌ Error API: {str(api_err)}"
