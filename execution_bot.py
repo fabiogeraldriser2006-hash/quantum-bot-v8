@@ -97,8 +97,8 @@ def cari_harga_beli_asli(pair):
 
 def ambil_seluruh_aset():
     """
-    Menarik semua saldo koin yang kita miliki di Indodax untuk ditampilkan di UI.
-    Telah diperbarui dengan filter absolut (> 0) agar saldo terkecil pun terbaca.
+    Menarik semua saldo koin yang kita miliki di Indodax.
+    Dilengkapi 'Mode Sinar-X' untuk mengekspos data mentah jika tabel ternyata kosong.
     """
     try:
         res = panggil_api_private_indodax('getInfo')
@@ -112,7 +112,6 @@ def ambil_seluruh_aset():
                     jumlah_float = float(jumlah)
                     tertahan_float = float(frozen.get(koin, 0))
                     
-                    # PERBAIKAN: Menggunakan filter > 0 agar Satoshi terkecil tidak terbuang
                     if (jumlah_float > 0 or tertahan_float > 0) and koin.lower() != 'idr':
                         daftar_aset.append({
                             "Aset": koin.upper(),
@@ -121,6 +120,13 @@ def ambil_seluruh_aset():
                         })
                 except:
                     pass
+            
+            # --- MODE SINAR-X (X-RAY) ---
+            # Jika daftar_aset kosong, kita intip seluruh data mentah dari server
+            if len(daftar_aset) == 0:
+                data_mentah = f"SALDO TERSEDIA: {balances} | SALDO TERTAHAN (FROZEN): {frozen}"
+                return [], data_mentah
+                
             return daftar_aset, None
         else:
             pesan_error = res.get('error', 'Permintaan ditolak tanpa alasan spesifik dari Indodax.')
@@ -231,7 +237,6 @@ def rutinitas_pemindaian():
                                 saldo_koin_asli = float(info_akun['return']['balance'].get(simbol_koin_kecil, 0))
                                 bot_state['cash'] = saldo_idr_asli
                                 
-                                # PERBAIKAN: Menggunakan filter > 0 untuk adopsi saldo live
                                 if saldo_koin_asli > 0: 
                                     if koin_nama not in bot_state["live_positions"]:
                                         harga_beli_riil = cari_harga_beli_asli(pair_indodax)
