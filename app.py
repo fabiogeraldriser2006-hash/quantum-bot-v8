@@ -3,7 +3,7 @@
 FILE: app.py
 DESKRIPSI: Dashboard Streamlit Utama (Full Features).
 Menampilkan Candlestick, Kontrol Bot, Portofolio, Dasbor Statistik, Dompet Live,
-Sistem Keamanan Login, dan Selektor Multi-Brain AI.
+Sistem Keamanan Login, Selektor Multi-Brain AI, dan Radar Error API.
 ================================================================================
 """
 import streamlit as st
@@ -173,17 +173,26 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Dompet Indodax
+    # =================================================================
+    # FITUR DOMPET INDODAX (DENGAN RADAR ERROR BARU)
+    # =================================================================
     if not mode_simulasi:
         with st.expander("💰 Lihat Dompet Indodax"):
             if st.button("🔄 Tarik Data Saldo", use_container_width=True):
                 with st.spinner("Menghubungi Indodax..."):
-                    aset_user = execution_bot.ambil_seluruh_aset()
-                    if aset_user:
+                    # PERBAIKAN: Menangkap dua variabel dari execution_bot
+                    aset_user, pesan_error = execution_bot.ambil_seluruh_aset()
+                    
+                    if pesan_error:
+                        # Menampilkan pesan error asli dari Indodax
+                        st.error(f"⚠️ Ditolak oleh Indodax: {pesan_error}")
+                        st.caption("Petunjuk: Pastikan API Key benar dan Anda sudah mencentang izin 'Info' di menu API website Indodax.")
+                    elif aset_user:
+                        # Menampilkan tabel jika berhasil
                         df_aset = pd.DataFrame(aset_user)
                         st.dataframe(df_aset, hide_index=True, use_container_width=True)
                     else:
-                        st.info("Dompet kosong atau API Key belum valid.")
+                        st.info("Dompet Anda saat ini benar-benar kosong (0 saldo).")
     else:
         with st.expander("💰 Lihat Dompet Indodax"):
             st.info("Matikan Mode Simulasi untuk melihat saldo Indodax asli.")
