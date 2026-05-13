@@ -96,7 +96,10 @@ def cari_harga_beli_asli(pair):
     return None 
 
 def ambil_seluruh_aset():
-    """Menarik semua saldo koin yang kita miliki di Indodax untuk ditampilkan di UI"""
+    """
+    Menarik semua saldo koin yang kita miliki di Indodax untuk ditampilkan di UI.
+    Telah dilengkapi 'Radar Error' untuk menangkap pesan penolakan dari API Indodax.
+    """
     try:
         res = panggil_api_private_indodax('getInfo')
         if res.get('success') == 1:
@@ -117,10 +120,16 @@ def ambil_seluruh_aset():
                         })
                 except:
                     pass
-            return daftar_aset
-    except Exception:
-        return []
-    return []
+            # Mengembalikan daftar aset DAN "None" (yang berarti tidak ada error)
+            return daftar_aset, None
+        else:
+            # Jika gagal, kembalikan daftar kosong DAN pesan error asli dari Indodax
+            pesan_error = res.get('error', 'Permintaan ditolak tanpa alasan spesifik dari Indodax.')
+            return [], pesan_error
+            
+    except Exception as e:
+        # Menangkap error jaringan atau API kosong
+        return [], str(e)
 
 # ==============================================================================
 # RUTINITAS UTAMA BOT (LOOPING) DENGAN INTEGRASI DATABASE
