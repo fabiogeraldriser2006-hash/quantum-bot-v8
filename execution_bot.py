@@ -211,7 +211,14 @@ def rutinitas_pemindaian():
                             if harga_skrg > pos["high_price"]: 
                                 pos["high_price"] = harga_skrg
                                 
-                            batas_jual = pos["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
+                            # KODE PERBAIKAN: Pengunci Mutlak Trailing Stop (Simulasi)
+                            batas_jual_kalkulasi = pos["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
+                            ts_sebelumnya = pos.get("ts_price", 0)
+                            
+                            if batas_jual_kalkulasi > ts_sebelumnya:
+                                pos["ts_price"] = batas_jual_kalkulasi
+                                
+                            batas_jual = pos.get("ts_price", batas_jual_kalkulasi)
                             
                             harga_jual_bersih = harga_skrg * 0.997
                             persentase_profit_bersih = ((harga_jual_bersih - pos["buy_price"]) / pos["buy_price"]) * 100
@@ -248,9 +255,14 @@ def rutinitas_pemindaian():
 
                         elif keputusan == "BUY" and bot_state["cash"] > 100000:
                             koin_didapat = (bot_state["cash"] / harga_skrg) * 0.997
+                            
+                            # KODE PERBAIKAN: Set nilai awal TS saat beli
+                            batas_awal_ts = harga_skrg - (atr_terbaru * bot_state["atr_multiplier"])
+                            
                             bot_state["positions"][koin_nama] = {
                                 "amount": koin_didapat, "buy_price": harga_skrg, 
-                                "high_price": harga_skrg, "atr_saat_beli": atr_terbaru
+                                "high_price": harga_skrg, "atr_saat_beli": atr_terbaru,
+                                "ts_price": batas_awal_ts
                             }
                             bot_state["cash"] = 0 
                             
@@ -277,9 +289,13 @@ def rutinitas_pemindaian():
                                             harga_patokan = harga_skrg
                                             pesan_adopsi = f"📥 Adopsi {koin_nama} | Riwayat nol, pakai Harga Estimasi: Rp {harga_patokan:,.0f}"
 
+                                        # KODE PERBAIKAN: Set nilai awal TS saat adopsi koin
+                                        batas_awal_ts_live = harga_skrg - (atr_terbaru * bot_state["atr_multiplier"])
+                                        
                                         bot_state["live_positions"][koin_nama] = {
                                             "high_price": harga_skrg, 
-                                            "buy_price": harga_patokan 
+                                            "buy_price": harga_patokan,
+                                            "ts_price": batas_awal_ts_live
                                         }
                                         
                                         database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
@@ -288,7 +304,15 @@ def rutinitas_pemindaian():
                                         
                                     pos_live = bot_state["live_positions"][koin_nama]
                                     if harga_skrg > pos_live["high_price"]: pos_live["high_price"] = harga_skrg
-                                    batas_jual_live = pos_live["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
+                                    
+                                    # KODE PERBAIKAN: Pengunci Mutlak Trailing Stop (Live)
+                                    batas_jual_kalkulasi = pos_live["high_price"] - (atr_terbaru * bot_state["atr_multiplier"])
+                                    ts_sebelumnya = pos_live.get("ts_price", 0)
+                                    
+                                    if batas_jual_kalkulasi > ts_sebelumnya:
+                                        pos_live["ts_price"] = batas_jual_kalkulasi
+                                        
+                                    batas_jual_live = pos_live.get("ts_price", batas_jual_kalkulasi)
                                     
                                     harga_jual_bersih = harga_skrg * 0.997
                                     persentase_profit_bersih = ((harga_jual_bersih - pos_live["buy_price"]) / pos_live["buy_price"]) * 100
@@ -343,7 +367,13 @@ def rutinitas_pemindaian():
                                     }
                                     res_beli = panggil_api_private_indodax('trade', parameter_beli)
                                     if res_beli.get('success') == 1:
-                                        bot_state["live_positions"][koin_nama] = {"high_price": harga_skrg, "buy_price": harga_skrg} 
+                                        # KODE PERBAIKAN: Set nilai awal TS saat beli Live
+                                        batas_awal_ts_live = harga_skrg - (atr_terbaru * bot_state["atr_multiplier"])
+                                        bot_state["live_positions"][koin_nama] = {
+                                            "high_price": harga_skrg, 
+                                            "buy_price": harga_skrg,
+                                            "ts_price": batas_awal_ts_live
+                                        } 
                                         database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
                                         bot_state["last_action"] = f"🚀 LIVE BUY SUKSES: {koin_nama}"
                                     else:
