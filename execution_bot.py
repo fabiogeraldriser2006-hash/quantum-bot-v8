@@ -14,25 +14,62 @@ import urllib.parse
 import hmac
 import hashlib
 import requests
+import json
+import os
 import config
 import data_engine
 import quant_brain
 import database
 
 # ==============================================================================
-# INITIAL LOAD: Memuat data dari Database
+# FUNGSI MEMORI PERMANEN (ANTI-AMNESIA SERVER)
+# ==============================================================================
+def muat_pengaturan():
+    """Membaca pengaturan terakhir user jika server ter-restart."""
+    try:
+        if os.path.exists("user_settings.json"):
+            with open("user_settings.json", "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {
+        "selected_coin": "Bitcoin (BTC)", 
+        "selected_ai": "Gemini",
+        "atr_multiplier": 2.0,
+        "take_profit_pct": 1.0,
+        "mode_simulasi": True
+    }
+
+def simpan_pengaturan():
+    """Menyimpan pengaturan saat ini ke file secara permanen."""
+    try:
+        pengaturan = {
+            "selected_coin": bot_state.get("selected_coin", "Bitcoin (BTC)"),
+            "selected_ai": bot_state.get("selected_ai", "Gemini"),
+            "atr_multiplier": bot_state.get("atr_multiplier", 2.0),
+            "take_profit_pct": bot_state.get("take_profit_pct", 1.0),
+            "mode_simulasi": bot_state.get("mode_simulasi", True)
+        }
+        with open("user_settings.json", "w") as f:
+            json.dump(pengaturan, f)
+    except Exception:
+        pass
+
+# ==============================================================================
+# INITIAL LOAD: Memuat data dari Database & Memori
 # ==============================================================================
 database.inisialisasi_db()
 data_tersimpan = database.muat_status_bot()
+pengaturan_user = muat_pengaturan()
 
 bot_state = {
-    "selected_coin": "Bitcoin (BTC)",
-    "selected_ai": "Gemini", 
-    "last_action": "Sistem dimuat dari database permanen...",
+    "selected_coin": pengaturan_user["selected_coin"],
+    "selected_ai": pengaturan_user["selected_ai"], 
+    "last_action": "Sistem dimuat dari database & memori permanen...",
     "scan_speed": 60,                 
-    "atr_multiplier": 2.0,            
-    "take_profit_pct": 1.0,           
-    "mode_simulasi": True,            
+    "atr_multiplier": pengaturan_user["atr_multiplier"],            
+    "take_profit_pct": pengaturan_user["take_profit_pct"],           
+    "mode_simulasi": pengaturan_user["mode_simulasi"],            
     "cash": data_tersimpan["cash"],   
     "positions": data_tersimpan["positions"],     
     "live_positions": data_tersimpan["live_positions"], 
@@ -132,6 +169,9 @@ def rutinitas_pemindaian():
     
     while BOT_IS_RUNNING:
         try:
+            # Mengamankan pengaturan ke dalam file setiap kali bot berputar
+            simpan_pengaturan()
+            
             koin_nama = bot_state["selected_coin"]
             data_koin = config.CRYPTO_MAP.get(koin_nama)
             
@@ -256,7 +296,6 @@ def rutinitas_pemindaian():
                                     
                                     if keputusan == "SELL" or harga_skrg <= batas_jual_live or kondisi_take_profit:
                                         
-                                        # PERBAIKAN KRITIS: Memaksa format 8 desimal untuk menghindari error notasi ilmiah (e.g. 1e-05)
                                         jumlah_jual_str = f"{saldo_koin_asli:.8f}"
                                         
                                         parameter_jual = {
@@ -289,13 +328,11 @@ def rutinitas_pemindaian():
                                             database.simpan_status_bot(bot_state["cash"], bot_state["positions"], bot_state["live_positions"])
                                             bot_state["last_action"] = f"✅ LIVE SELL SUKSES | {alasan_jual}"
                                             
-                                        # PERBAIKAN KRITIS: Menangkap pesan penolakan dari API Indodax
                                         else:
                                             pesan_error_api = res_jual.get('error', 'Ditolak tanpa alasan oleh server.')
                                             bot_state["last_action"] = f"❌ GAGAL JUAL: {pesan_error_api} (Profit: {persentase_profit_bersih:.2f}%)"
                                             
                                     else:
-                                        # PERBAIKAN KRITIS: Menampilkan metrik pantauan real-time yang jelas
                                         bot_state["last_action"] = f"⚖️ Pantau (Live) | Profit: {persentase_profit_bersih:.2f}% | Harga Skrg: Rp {harga_skrg:,.0f} | Batas TS: Rp {batas_jual_live:,.0f}"
                                         
                                 elif keputusan == "BUY" and saldo_idr_asli > 15000: 
